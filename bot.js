@@ -1,20 +1,21 @@
 import { Telegraf } from 'telegraf';
-import axios from 'axios';
 import {
   SMA,
   RSI,
   Stochastic,
   MACD,
 } from 'technicalindicators';
+import puppeteer from 'puppeteer';
 
+// Токен бота из переменных окружения
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// Динамическая генерация свечей — данные меняются со временем
+// Генерация динамических свечей (пример)
 async function fetchCandles(symbol, timeframe) {
   const now = Date.now();
   const candles = [];
   for (let i = 100; i > 0; i--) {
-    const base = Math.sin((now / 60000 + i) / 10) * 10; // меняется со временем
+    const base = Math.sin((now / 60000 + i) / 10) * 10;
     const close = 100 + base + Math.random() * 2;
     const high = close + Math.random() * 2;
     const low = close - Math.random() * 2;
@@ -31,7 +32,6 @@ async function fetchCandles(symbol, timeframe) {
   return candles;
 }
 
-// Поиск уровней поддержки/сопротивления (локальные минимумы/максимумы)
 function findSupportResistance(candles) {
   const closes = candles.map(c => c.close);
   const supports = [];
@@ -65,7 +65,6 @@ function findSupportResistance(candles) {
   };
 }
 
-// Анализ тренда по SMA
 function analyzeTrend(smaShort, smaLong) {
   if (smaShort.length === 0 || smaLong.length === 0) return 'Нет данных для анализа тренда';
 
@@ -77,7 +76,6 @@ function analyzeTrend(smaShort, smaLong) {
   return 'Тренд: неопределённый';
 }
 
-// Анализ индикаторов
 function analyzeIndicators(rsi, stochasticK, macd) {
   let rsiSignal = '';
   if (rsi[rsi.length - 1] > 70) rsiSignal = 'RSI: перекупленность (возможна коррекция)';
@@ -98,7 +96,6 @@ function analyzeIndicators(rsi, stochasticK, macd) {
   return [rsiSignal, stochasticSignal, macdSignal].join('\n');
 }
 
-// Генерация рекомендаций по сделкам
 function generateTradeRecommendations(trend, rsi, stochasticK, macd, closes, levels) {
   const lastClose = closes[closes.length - 1];
   const rsiLast = rsi[rsi.length - 1];
@@ -131,15 +128,17 @@ function generateTradeRecommendations(trend, rsi, stochasticK, macd, closes, lev
   return 'Рекомендация: Ждать сигнала — условия для входа не сформированы.';
 }
 
-async function generateChartQuickChart(candles, symbol, timeframe, analysis, sma5, sma15) {
+// Функция генерации PNG графика через Puppeteer и Chart.js
+async function generateChartImage(candles, symbol, timeframe, levels, sma5, sma15) {
   const labels = candles.map(c => new Date(c.time).toLocaleTimeString());
   const prices = candles.map(c => c.close);
 
   const sma5Full = Array(candles.length - sma5.length).fill(null).concat(sma5);
   const sma15Full = Array(candles.length - sma15.length).fill(null).concat(sma15);
 
+  // Аннотации для поддержки и сопротивления
   const annotations = {};
-  analysis.supports.forEach((level, i) => {
+  levels.supports.forEach((level, i) => {
     annotations[`support${i}`] = {
       type: 'line',
       yMin: level,
@@ -154,7 +153,7 @@ async function generateChartQuickChart(candles, symbol, timeframe, analysis, sma
       },
     };
   });
-  analysis.resistances.forEach((level, i) => {
+  levels.resistances.forEach((level, i) => {
     annotations[`resistance${i}`] = {
       type: 'line',
       yMin: level,
@@ -217,12 +216,41 @@ async function generateChartQuickChart(candles, symbol, timeframe, analysis, sma
     },
   };
 
-  const encodedConfig = encodeURIComponent(JSON.stringify(chartConfig));
-  // Добавляем bust для отключения кеша
-  const url = `https://quickchart.io/chart?c=${encodedConfig}&format=png&width=900&height=500&bust=${Date.now()}`;
+  // Генерируем HTML с Chart.js и аннотациями
+  const html = `
+  <html>
+  <head>
+    <meta charset="UTF-8" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@1.1.0/dist/chartjs-plugin-annotation.min.js"></script>
+    <style>
+      body { margin: 0; }
+      canvas { display: block; }
+    </style>
+  </head>
+  <body>
+    <canvas id="chart" width="900" height="500"></canvas>
+    <script>
+      const ctx = document.getElementById('chart').getContext('2d');
+      Chart.register(window['chartjs-plugin-annotation']);
+      new Chart(ctx, ${JSON.stringify(chartConfig)});
+    </script>
+  </body>
+  </html>
+  `;
 
-  const response = await axios.get(url, { responseType: 'arraybuffer' });
-  return Buffer.from(response.data, 'binary');
+  const browser = await puppeteer.launch({
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+  });
+  const page = await browser.newPage();
+
+  await page.setContent(html, { waitUntil: 'networkidle0' });
+  const canvas = await page.$('canvas');
+  const imageBuffer = await canvas.screenshot();
+
+  await browser.close();
+
+  return imageBuffer;
 }
 
 bot.command('analyze', async (ctx) => {
@@ -272,11 +300,11 @@ bot.command('analyze', async (ctx) => {
       `Сопротивление: ${levels.resistances.map(l => l.toFixed(2)).join(', ')}\n\n` +
       `${recommendation}`;
 
-    const chartBuffer = await generateChartQuickChart(candles, symbol, timeframe, levels, sma5, sma15);
+    const chartBuffer = await generateChartImage(candles, symbol, timeframe, levels, sma5, sma15);
 
     await ctx.replyWithPhoto(
       { source: chartBuffer },
-      { caption: analysisText, parse_mode: 'Markdown' }
+      { caption: analysisText }
     );
   } catch (error) {
     console.error(error);
@@ -285,5 +313,4 @@ bot.command('analyze', async (ctx) => {
 });
 
 bot.launch();
-
 console.log('Бот запущен');
