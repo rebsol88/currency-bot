@@ -1,20 +1,25 @@
+import 'dotenv/config';
 import { Telegraf } from 'telegraf';
-import {
-  SMA,
-  RSI,
-  Stochastic,
-  MACD,
-} from 'technicalindicators';
+import { SMA, RSI, Stochastic, MACD } from 'technicalindicators';
 import puppeteer from 'puppeteer';
 
-// Токен бота из переменных окружения
+// Инициализация бота
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// Генерация динамических свечей (пример)
+// Фейковые данные с разной длиной в зависимости от таймфрейма
 async function fetchCandles(symbol, timeframe) {
   const now = Date.now();
+  let count;
+  switch (timeframe) {
+    case '1m': count = 100; break;
+    case '5m': count = 60; break;
+    case '15m': count = 40; break;
+    case '1h': count = 30; break;
+    default: count = 100;
+  }
+
   const candles = [];
-  for (let i = 100; i > 0; i--) {
+  for (let i = count; i > 0; i--) {
     const base = Math.sin((now / 60000 + i) / 10) * 10;
     const close = 100 + base + Math.random() * 2;
     const high = close + Math.random() * 2;
@@ -128,7 +133,6 @@ function generateTradeRecommendations(trend, rsi, stochasticK, macd, closes, lev
   return 'Рекомендация: Ждать сигнала — условия для входа не сформированы.';
 }
 
-// Функция генерации PNG графика через Puppeteer и Chart.js
 async function generateChartImage(candles, symbol, timeframe, levels, sma5, sma15) {
   const labels = candles.map(c => new Date(c.time).toLocaleTimeString());
   const prices = candles.map(c => c.close);
@@ -136,7 +140,6 @@ async function generateChartImage(candles, symbol, timeframe, levels, sma5, sma1
   const sma5Full = Array(candles.length - sma5.length).fill(null).concat(sma5);
   const sma15Full = Array(candles.length - sma15.length).fill(null).concat(sma15);
 
-  // Аннотации для поддержки и сопротивления
   const annotations = {};
   levels.supports.forEach((level, i) => {
     annotations[`support${i}`] = {
@@ -216,7 +219,6 @@ async function generateChartImage(candles, symbol, timeframe, levels, sma5, sma1
     },
   };
 
-  // Генерируем HTML с Chart.js и аннотациями
   const html = `
   <html>
   <head>
@@ -256,8 +258,8 @@ async function generateChartImage(candles, symbol, timeframe, levels, sma5, sma1
 bot.command('analyze', async (ctx) => {
   try {
     const args = ctx.message.text.split(' ');
-    const symbol = args[1] || 'BTCUSDT';
-    const timeframe = args[2] || '1m';
+    const symbol = args[1] ? args[1].toUpperCase() : 'BTCUSDT';
+    const timeframe = args[2] ? args[2].toLowerCase() : '1m';
 
     const candles = await fetchCandles(symbol, timeframe);
     if (!candles || candles.length === 0) {
@@ -296,8 +298,8 @@ bot.command('analyze', async (ctx) => {
     const recommendation = generateTradeRecommendations(trend, rsi, stochastic.map(s => s.k), macd, closes, levels);
 
     const analysisText = `${trend}\n\n${indicatorsAnalysis}\n\n` +
-      `Поддержка: ${levels.supports.map(l => l.toFixed(2)).join(', ')}\n` +
-      `Сопротивление: ${levels.resistances.map(l => l.toFixed(2)).join(', ')}\n\n` +
+      `Поддержка: ${levels.supports.map(l => l.toFixed(2)).join(', ') || 'нет'}\n` +
+      `Сопротивление: ${levels.resistances.map(l => l.toFixed(2)).join(', ') || 'нет'}\n\n` +
       `${recommendation}`;
 
     const chartBuffer = await generateChartImage(candles, symbol, timeframe, levels, sma5, sma15);
