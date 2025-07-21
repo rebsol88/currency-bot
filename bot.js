@@ -1,17 +1,13 @@
-const { Telegraf } = require('telegraf');
-const { SMA, RSI, Stochastic, MACD } = require('technicalindicators');
-const { ChartJSNodeCanvas } = require('chartjs-node-canvas');
+import { Telegraf } from 'telegraf';
+import { SMA, RSI, Stochastic, MACD } from 'technicalindicators';
+import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
 
 const bot = new Telegraf('YOUR_BOT_TOKEN_HERE');
 
-// Функция генерации искусственных свечей под таймфрейм
 async function fetchCandles(symbol, timeframe) {
-  // Пример: длина массива зависит от таймфрейма
-  // 1m - 100 свечей, 5m - 50, 15m - 30, 1h - 20, 1d - 15
   const lengths = { '1m': 100, '5m': 50, '15m': 30, '1h': 20, '1d': 15 };
   const length = lengths[timeframe] || 50;
 
-  // Генерируем искусственные данные
   const candles = [];
   let basePrice = 50000;
   for (let i = 0; i < length; i++) {
@@ -20,13 +16,12 @@ async function fetchCandles(symbol, timeframe) {
     const high = Math.max(open, close) + Math.random() * 200;
     const low = Math.min(open, close) - Math.random() * 200;
     candles.push({ open, high, low, close });
-    basePrice = close; // чтобы цена плавно менялась
+    basePrice = close;
   }
   return candles;
 }
 
 function findSupportResistance(candles) {
-  // Простейший поиск локальных минимумов и максимумов
   const supports = [];
   const resistances = [];
 
@@ -129,7 +124,6 @@ async function generateChartImage(candles, symbol, timeframe, levels, sma5, sma1
   const closes = candles.map(c => c.close);
   const labels = candles.map((_, i) => i + 1);
 
-  // Для SMA сдвигаем, чтобы длины совпадали с closes
   const sma5Full = Array(closes.length - sma5.length).fill(null).concat(sma5);
   const sma15Full = Array(closes.length - sma15.length).fill(null).concat(sma15);
 
@@ -160,7 +154,6 @@ async function generateChartImage(candles, symbol, timeframe, levels, sma5, sma1
     },
   ];
 
-  // Добавим уровни поддержки и сопротивления как горизонтальные линии
   const supportLines = levels.supports.map(level => ({
     label: 'Поддержка',
     data: Array(closes.length).fill(level),
@@ -273,6 +266,5 @@ bot.launch().then(() => {
   console.log('Бот запущен');
 });
 
-// Graceful stop
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
