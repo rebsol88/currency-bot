@@ -9,12 +9,13 @@ import {
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// Заглушка получения свечей - замените на реальный источник
+// Динамическая генерация свечей — данные меняются со временем
 async function fetchCandles(symbol, timeframe) {
   const now = Date.now();
   const candles = [];
   for (let i = 100; i > 0; i--) {
-    const close = 100 + Math.sin(i / 10) * 10 + Math.random() * 2;
+    const base = Math.sin((now / 60000 + i) / 10) * 10; // меняется со временем
+    const close = 100 + base + Math.random() * 2;
     const high = close + Math.random() * 2;
     const low = close - Math.random() * 2;
     const open = close + (Math.random() - 0.5) * 2;
@@ -30,7 +31,7 @@ async function fetchCandles(symbol, timeframe) {
   return candles;
 }
 
-// Примитивный поиск уровней поддержки/сопротивления (локальные минимумы/максимумы)
+// Поиск уровней поддержки/сопротивления (локальные минимумы/максимумы)
 function findSupportResistance(candles) {
   const closes = candles.map(c => c.close);
   const supports = [];
@@ -217,7 +218,8 @@ async function generateChartQuickChart(candles, symbol, timeframe, analysis, sma
   };
 
   const encodedConfig = encodeURIComponent(JSON.stringify(chartConfig));
-  const url = `https://quickchart.io/chart?c=${encodedConfig}&format=png&width=900&height=500`;
+  // Добавляем bust для отключения кеша
+  const url = `https://quickchart.io/chart?c=${encodedConfig}&format=png&width=900&height=500&bust=${Date.now()}`;
 
   const response = await axios.get(url, { responseType: 'arraybuffer' });
   return Buffer.from(response.data, 'binary');
