@@ -6,7 +6,10 @@
     "start": "node bot.js"
   },
   "dependencies": {
-    "discord.js": "^14.0.0",
-    "technicalindicators": "^3.1.0"
+    "telegraf": "^4.12.2",  // Добавляем Telegraf
+    "axios": "^1.6.7",      // Для API-запросов
+    "canvas": "^2.11.2",    // Для генерации графиков
+    "technicalindicators": "^3.1.0",
+    "discord.js": "^14.0.0"
   }
 }
