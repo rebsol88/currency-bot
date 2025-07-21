@@ -2,18 +2,19 @@
   "name": "currency-bot",
   "version": "1.0.0",
   "main": "bot.js",
-  "type": "module", 
+  "type": "module",
   "scripts": {
     "start": "node bot.js",
-    "dev": "nodemon bot.js" 
+    "dev": "nodemon bot.js"
   },
   "dependencies": {
     "telegraf": "^4.12.2",
     "axios": "^1.6.7",
     "canvas": "^2.11.2",
-    "technicalindicators": "^3.1.0"
+    "technicalindicators": "^3.1.0",
+    "chartjs-node-canvas": "^4.1.7"
   },
   "engines": {
-  "node": "18.x" 
+    "node": "18.x"
   }
 }
