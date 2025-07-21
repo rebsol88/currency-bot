@@ -36,7 +36,6 @@ function findSupportResistance(candles) {
   const supports = [];
   const resistances = [];
 
-  // Ищем локальные минимумы и максимумы
   for (let i = 2; i < closes.length - 2; i++) {
     if (
       closes[i] < closes[i - 1] &&
@@ -56,7 +55,6 @@ function findSupportResistance(candles) {
     }
   }
 
-  // Возьмем по 2 наиболее значимых (например, самые низкие поддержки и самые высокие сопротивления)
   supports.sort((a, b) => a - b);
   resistances.sort((a, b) => b - a);
 
@@ -99,16 +97,46 @@ function analyzeIndicators(rsi, stochasticK, macd) {
   return [rsiSignal, stochasticSignal, macdSignal].join('\n');
 }
 
+// Генерация рекомендаций по сделкам
+function generateTradeRecommendations(trend, rsi, stochasticK, macd, closes, levels) {
+  const lastClose = closes[closes.length - 1];
+  const rsiLast = rsi[rsi.length - 1];
+  const stochasticLast = stochasticK[stochasticK.length - 1];
+  const macdLast = macd[macd.length - 1];
+
+  const nearSupport = levels.supports.some(level => Math.abs(lastClose - level) / level < 0.01);
+  const nearResistance = levels.resistances.some(level => Math.abs(lastClose - level) / level < 0.01);
+
+  const buySignal =
+    trend.includes('бычий') &&
+    rsiLast < 30 &&
+    stochasticLast < 20 &&
+    macdLast.MACD > macdLast.signal &&
+    nearSupport;
+
+  const sellSignal =
+    trend.includes('медвежий') &&
+    rsiLast > 70 &&
+    stochasticLast > 80 &&
+    macdLast.MACD < macdLast.signal &&
+    nearResistance;
+
+  if (buySignal) {
+    return 'Рекомендация: Покупать (Long) — тренд восходящий, индикаторы перепроданы, цена у поддержки.';
+  }
+  if (sellSignal) {
+    return 'Рекомендация: Продавать (Short) — тренд нисходящий, индикаторы перекуплены, цена у сопротивления.';
+  }
+  return 'Рекомендация: Ждать сигнала — условия для входа не сформированы.';
+}
+
 async function generateChartQuickChart(candles, symbol, timeframe, analysis, sma5, sma15) {
   const labels = candles.map(c => new Date(c.time).toLocaleTimeString());
   const prices = candles.map(c => c.close);
 
-  // Преобразуем SMA в формат для графика (сдвинем, чтобы совпадали с ценами)
-  // SMA короче, поэтому сделаем пустые значения в начале
   const sma5Full = Array(candles.length - sma5.length).fill(null).concat(sma5);
   const sma15Full = Array(candles.length - sma15.length).fill(null).concat(sma15);
 
-  // Формируем аннотации для уровней поддержки и сопротивления
   const annotations = {};
   analysis.supports.forEach((level, i) => {
     annotations[`support${i}`] = {
@@ -206,12 +234,10 @@ bot.command('analyze', async (ctx) => {
       return ctx.reply('Не удалось получить данные по свечам.');
     }
 
-    // Закрытия для индикаторов
     const closes = candles.map(c => c.close);
     const highs = candles.map(c => c.high);
     const lows = candles.map(c => c.low);
 
-    // Индикаторы
     const sma5 = SMA.calculate({ period: 5, values: closes });
     const sma15 = SMA.calculate({ period: 15, values: closes });
     const rsi = RSI.calculate({ period: 14, values: closes });
@@ -233,18 +259,17 @@ bot.command('analyze', async (ctx) => {
     };
     const macd = MACD.calculate(macdInput);
 
-    // Уровни поддержки/сопротивления
     const levels = findSupportResistance(candles);
 
-    // Анализ
     const trend = analyzeTrend(sma5, sma15);
     const indicatorsAnalysis = analyzeIndicators(rsi, stochastic.map(s => s.k), macd);
+    const recommendation = generateTradeRecommendations(trend, rsi, stochastic.map(s => s.k), macd, closes, levels);
 
     const analysisText = `${trend}\n\n${indicatorsAnalysis}\n\n` +
       `Поддержка: ${levels.supports.map(l => l.toFixed(2)).join(', ')}\n` +
-      `Сопротивление: ${levels.resistances.map(l => l.toFixed(2)).join(', ')}`;
+      `Сопротивление: ${levels.resistances.map(l => l.toFixed(2)).join(', ')}\n\n` +
+      `${recommendation}`;
 
-    // Генерация графика
     const chartBuffer = await generateChartQuickChart(candles, symbol, timeframe, levels, sma5, sma15);
 
     await ctx.replyWithPhoto(
