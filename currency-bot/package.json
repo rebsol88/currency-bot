@@ -1,0 +1,11 @@
+{
+  "name": "currency-bot",
+  "version": "1.0.0",
+  "dependencies": {
+    "technicalindicators": "^4.0.0",
+    "discord.js": "^14.0.0"
+  },
+  "scripts": {
+    "start": "node bot.js"
+  }
+}
