@@ -1,27 +1,20 @@
-import 'dotenv/config';
 import { Telegraf } from 'telegraf';
-import { SMA, RSI, Stochastic, MACD } from 'technicalindicators';
-import puppeteer from 'puppeteer';
+import axios from 'axios';
+import {
+  SMA,
+  RSI,
+  Stochastic,
+  MACD,
+} from 'technicalindicators';
 
-// Инициализация бота
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// Фейковые данные с разной длиной в зависимости от таймфрейма
+// Заглушка получения свечей - замените на реальный источник
 async function fetchCandles(symbol, timeframe) {
   const now = Date.now();
-  let count;
-  switch (timeframe) {
-    case '1m': count = 100; break;
-    case '5m': count = 60; break;
-    case '15m': count = 40; break;
-    case '1h': count = 30; break;
-    default: count = 100;
-  }
-
   const candles = [];
-  for (let i = count; i > 0; i--) {
-    const base = Math.sin((now / 60000 + i) / 10) * 10;
-    const close = 100 + base + Math.random() * 2;
+  for (let i = 100; i > 0; i--) {
+    const close = 100 + Math.sin(i / 10) * 10 + Math.random() * 2;
     const high = close + Math.random() * 2;
     const low = close - Math.random() * 2;
     const open = close + (Math.random() - 0.5) * 2;
@@ -37,6 +30,7 @@ async function fetchCandles(symbol, timeframe) {
   return candles;
 }
 
+// Примитивный поиск уровней поддержки/сопротивления (локальные минимумы/максимумы)
 function findSupportResistance(candles) {
   const closes = candles.map(c => c.close);
   const supports = [];
@@ -70,6 +64,7 @@ function findSupportResistance(candles) {
   };
 }
 
+// Анализ тренда по SMA
 function analyzeTrend(smaShort, smaLong) {
   if (smaShort.length === 0 || smaLong.length === 0) return 'Нет данных для анализа тренда';
 
@@ -81,6 +76,7 @@ function analyzeTrend(smaShort, smaLong) {
   return 'Тренд: неопределённый';
 }
 
+// Анализ индикаторов
 function analyzeIndicators(rsi, stochasticK, macd) {
   let rsiSignal = '';
   if (rsi[rsi.length - 1] > 70) rsiSignal = 'RSI: перекупленность (возможна коррекция)';
@@ -101,6 +97,7 @@ function analyzeIndicators(rsi, stochasticK, macd) {
   return [rsiSignal, stochasticSignal, macdSignal].join('\n');
 }
 
+// Генерация рекомендаций по сделкам
 function generateTradeRecommendations(trend, rsi, stochasticK, macd, closes, levels) {
   const lastClose = closes[closes.length - 1];
   const rsiLast = rsi[rsi.length - 1];
@@ -133,7 +130,7 @@ function generateTradeRecommendations(trend, rsi, stochasticK, macd, closes, lev
   return 'Рекомендация: Ждать сигнала — условия для входа не сформированы.';
 }
 
-async function generateChartImage(candles, symbol, timeframe, levels, sma5, sma15) {
+async function generateChartQuickChart(candles, symbol, timeframe, analysis, sma5, sma15) {
   const labels = candles.map(c => new Date(c.time).toLocaleTimeString());
   const prices = candles.map(c => c.close);
 
@@ -141,7 +138,7 @@ async function generateChartImage(candles, symbol, timeframe, levels, sma5, sma1
   const sma15Full = Array(candles.length - sma15.length).fill(null).concat(sma15);
 
   const annotations = {};
-  levels.supports.forEach((level, i) => {
+  analysis.supports.forEach((level, i) => {
     annotations[`support${i}`] = {
       type: 'line',
       yMin: level,
@@ -156,7 +153,7 @@ async function generateChartImage(candles, symbol, timeframe, levels, sma5, sma1
       },
     };
   });
-  levels.resistances.forEach((level, i) => {
+  analysis.resistances.forEach((level, i) => {
     annotations[`resistance${i}`] = {
       type: 'line',
       yMin: level,
@@ -219,47 +216,18 @@ async function generateChartImage(candles, symbol, timeframe, levels, sma5, sma1
     },
   };
 
-  const html = `
-  <html>
-  <head>
-    <meta charset="UTF-8" />
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@1.1.0/dist/chartjs-plugin-annotation.min.js"></script>
-    <style>
-      body { margin: 0; }
-      canvas { display: block; }
-    </style>
-  </head>
-  <body>
-    <canvas id="chart" width="900" height="500"></canvas>
-    <script>
-      const ctx = document.getElementById('chart').getContext('2d');
-      Chart.register(window['chartjs-plugin-annotation']);
-      new Chart(ctx, ${JSON.stringify(chartConfig)});
-    </script>
-  </body>
-  </html>
-  `;
+  const encodedConfig = encodeURIComponent(JSON.stringify(chartConfig));
+  const url = `https://quickchart.io/chart?c=${encodedConfig}&format=png&width=900&height=500`;
 
-  const browser = await puppeteer.launch({
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
-  });
-  const page = await browser.newPage();
-
-  await page.setContent(html, { waitUntil: 'networkidle0' });
-  const canvas = await page.$('canvas');
-  const imageBuffer = await canvas.screenshot();
-
-  await browser.close();
-
-  return imageBuffer;
+  const response = await axios.get(url, { responseType: 'arraybuffer' });
+  return Buffer.from(response.data, 'binary');
 }
 
 bot.command('analyze', async (ctx) => {
   try {
     const args = ctx.message.text.split(' ');
-    const symbol = args[1] ? args[1].toUpperCase() : 'BTCUSDT';
-    const timeframe = args[2] ? args[2].toLowerCase() : '1m';
+    const symbol = args[1] || 'BTCUSDT';
+    const timeframe = args[2] || '1m';
 
     const candles = await fetchCandles(symbol, timeframe);
     if (!candles || candles.length === 0) {
@@ -298,15 +266,15 @@ bot.command('analyze', async (ctx) => {
     const recommendation = generateTradeRecommendations(trend, rsi, stochastic.map(s => s.k), macd, closes, levels);
 
     const analysisText = `${trend}\n\n${indicatorsAnalysis}\n\n` +
-      `Поддержка: ${levels.supports.map(l => l.toFixed(2)).join(', ') || 'нет'}\n` +
-      `Сопротивление: ${levels.resistances.map(l => l.toFixed(2)).join(', ') || 'нет'}\n\n` +
+      `Поддержка: ${levels.supports.map(l => l.toFixed(2)).join(', ')}\n` +
+      `Сопротивление: ${levels.resistances.map(l => l.toFixed(2)).join(', ')}\n\n` +
       `${recommendation}`;
 
-    const chartBuffer = await generateChartImage(candles, symbol, timeframe, levels, sma5, sma15);
+    const chartBuffer = await generateChartQuickChart(candles, symbol, timeframe, levels, sma5, sma15);
 
     await ctx.replyWithPhoto(
       { source: chartBuffer },
-      { caption: analysisText }
+      { caption: analysisText, parse_mode: 'Markdown' }
     );
   } catch (error) {
     console.error(error);
@@ -315,4 +283,5 @@ bot.command('analyze', async (ctx) => {
 });
 
 bot.launch();
+
 console.log('Бот запущен');
