@@ -1,104 +1,88 @@
-import { Telegraf } from 'telegraf';
-import axios from 'axios';
-import {
-  SMA,
-  RSI,
-  Stochastic,
-  MACD,
-} from 'technicalindicators';
+const { Telegraf } = require('telegraf');
+const { SMA, RSI, Stochastic, MACD } = require('technicalindicators');
+const { ChartJSNodeCanvas } = require('chartjs-node-canvas');
 
-const bot = new Telegraf(process.env.BOT_TOKEN);
+const bot = new Telegraf('YOUR_BOT_TOKEN_HERE');
 
-// Заглушка получения свечей - замените на реальный источник
+// Функция генерации искусственных свечей под таймфрейм
 async function fetchCandles(symbol, timeframe) {
-  const now = Date.now();
+  // Пример: длина массива зависит от таймфрейма
+  // 1m - 100 свечей, 5m - 50, 15m - 30, 1h - 20, 1d - 15
+  const lengths = { '1m': 100, '5m': 50, '15m': 30, '1h': 20, '1d': 15 };
+  const length = lengths[timeframe] || 50;
+
+  // Генерируем искусственные данные
   const candles = [];
-  for (let i = 100; i > 0; i--) {
-    const close = 100 + Math.sin(i / 10) * 10 + Math.random() * 2;
-    const high = close + Math.random() * 2;
-    const low = close - Math.random() * 2;
-    const open = close + (Math.random() - 0.5) * 2;
-    candles.push({
-      time: now - i * 60000,
-      open,
-      high,
-      low,
-      close,
-      volume: 1000 + Math.random() * 100,
-    });
+  let basePrice = 50000;
+  for (let i = 0; i < length; i++) {
+    const open = basePrice + (Math.random() - 0.5) * 500;
+    const close = open + (Math.random() - 0.5) * 300;
+    const high = Math.max(open, close) + Math.random() * 200;
+    const low = Math.min(open, close) - Math.random() * 200;
+    candles.push({ open, high, low, close });
+    basePrice = close; // чтобы цена плавно менялась
   }
   return candles;
 }
 
-// Примитивный поиск уровней поддержки/сопротивления (локальные минимумы/максимумы)
 function findSupportResistance(candles) {
-  const closes = candles.map(c => c.close);
+  // Простейший поиск локальных минимумов и максимумов
   const supports = [];
   const resistances = [];
 
-  for (let i = 2; i < closes.length - 2; i++) {
-    if (
-      closes[i] < closes[i - 1] &&
-      closes[i] < closes[i + 1] &&
-      closes[i] < closes[i - 2] &&
-      closes[i] < closes[i + 2]
-    ) {
-      supports.push(closes[i]);
+  for (let i = 1; i < candles.length - 1; i++) {
+    if (candles[i].low < candles[i - 1].low && candles[i].low < candles[i + 1].low) {
+      supports.push(candles[i].low);
     }
-    if (
-      closes[i] > closes[i - 1] &&
-      closes[i] > closes[i + 1] &&
-      closes[i] > closes[i - 2] &&
-      closes[i] > closes[i + 2]
-    ) {
-      resistances.push(closes[i]);
+    if (candles[i].high > candles[i - 1].high && candles[i].high > candles[i + 1].high) {
+      resistances.push(candles[i].high);
     }
   }
-
-  supports.sort((a, b) => a - b);
-  resistances.sort((a, b) => b - a);
-
-  return {
-    supports: supports.slice(0, 2),
-    resistances: resistances.slice(0, 2),
-  };
+  return { supports, resistances };
 }
 
-// Анализ тренда по SMA
-function analyzeTrend(smaShort, smaLong) {
-  if (smaShort.length === 0 || smaLong.length === 0) return 'Нет данных для анализа тренда';
+function analyzeTrend(sma5, sma15) {
+  if (sma5.length === 0 || sma15.length === 0) return 'Тренд: недостаточно данных';
 
-  const lastShort = smaShort[smaShort.length - 1];
-  const lastLong = smaLong[smaLong.length - 1];
+  const lastSMA5 = sma5[sma5.length - 1];
+  const lastSMA15 = sma15[sma15.length - 1];
 
-  if (lastShort > lastLong) return 'Тренд: бычий (рост)';
-  if (lastShort < lastLong) return 'Тренд: медвежий (падение)';
+  if (lastSMA5 > lastSMA15) return 'Тренд: бычий (восходящий)';
+  if (lastSMA5 < lastSMA15) return 'Тренд: медвежий (нисходящий)';
   return 'Тренд: неопределённый';
 }
 
-// Анализ индикаторов
 function analyzeIndicators(rsi, stochasticK, macd) {
-  let rsiSignal = '';
-  if (rsi[rsi.length - 1] > 70) rsiSignal = 'RSI: перекупленность (возможна коррекция)';
-  else if (rsi[rsi.length - 1] < 30) rsiSignal = 'RSI: перепроданность (возможен рост)';
-  else rsiSignal = `RSI: нейтрально (${rsi[rsi.length - 1].toFixed(1)})`;
+  if (rsi.length === 0 || stochasticK.length === 0 || macd.length === 0) {
+    return 'Недостаточно данных для анализа индикаторов';
+  }
 
-  let stochasticSignal = '';
+  const rsiLast = rsi[rsi.length - 1];
+  let rsiSignal = '';
+  if (rsiLast > 70) rsiSignal = `RSI: перекупленность (${rsiLast.toFixed(1)}) — возможна коррекция`;
+  else if (rsiLast < 30) rsiSignal = `RSI: перепроданность (${rsiLast.toFixed(1)}) — возможен рост`;
+  else rsiSignal = `RSI: нейтрально (${rsiLast.toFixed(1)})`;
+
   const k = stochasticK[stochasticK.length - 1];
-  if (k > 80) stochasticSignal = 'Стохастик: перекупленность';
-  else if (k < 20) stochasticSignal = 'Стохастик: перепроданность';
+  let stochasticSignal = '';
+  if (k > 80) stochasticSignal = `Стохастик: перекупленность (${k.toFixed(1)})`;
+  else if (k < 20) stochasticSignal = `Стохастик: перепроданность (${k.toFixed(1)})`;
   else stochasticSignal = `Стохастик: нейтрально (${k.toFixed(1)})`;
 
-  let macdSignal = '';
   const macdVal = macd[macd.length - 1];
-  if (macdVal.MACD > macdVal.signal) macdSignal = 'MACD: бычий сигнал';
-  else macdSignal = 'MACD: медвежий сигнал';
+  const macdDiff = macdVal.MACD - macdVal.signal;
+  let macdSignal = '';
+  if (macdDiff > 0) macdSignal = `MACD: бычий сигнал (${macdVal.MACD.toFixed(3)} > ${macdVal.signal.toFixed(3)})`;
+  else macdSignal = `MACD: медвежий сигнал (${macdVal.MACD.toFixed(3)} < ${macdVal.signal.toFixed(3)})`;
 
   return [rsiSignal, stochasticSignal, macdSignal].join('\n');
 }
 
-// Генерация рекомендаций по сделкам
 function generateTradeRecommendations(trend, rsi, stochasticK, macd, closes, levels) {
+  if (rsi.length === 0 || stochasticK.length === 0 || macd.length === 0) {
+    return 'Недостаточно данных для рекомендаций.';
+  }
+
   const lastClose = closes[closes.length - 1];
   const rsiLast = rsi[rsi.length - 1];
   const stochasticLast = stochasticK[stochasticK.length - 1];
@@ -127,107 +111,110 @@ function generateTradeRecommendations(trend, rsi, stochasticK, macd, closes, lev
   if (sellSignal) {
     return 'Рекомендация: Продавать (Short) — тренд нисходящий, индикаторы перекуплены, цена у сопротивления.';
   }
-  return 'Рекомендация: Ждать сигнала — условия для входа не сформированы.';
+
+  if (trend.includes('бычий')) {
+    return 'Рекомендация: В целом тренд восходящий, но индикаторы не показывают явных сигналов покупки. Рекомендуется подождать подтверждения или входить с осторожностью.';
+  }
+  if (trend.includes('медвежий')) {
+    return 'Рекомендация: В целом тренд нисходящий, но индикаторы не показывают явных сигналов продажи. Рекомендуется подождать подтверждения или входить с осторожностью.';
+  }
+  return 'Рекомендация: Тренд неопределённый, рекомендуется воздержаться от сделок.';
 }
 
-async function generateChartQuickChart(candles, symbol, timeframe, analysis, sma5, sma15) {
-  const labels = candles.map(c => new Date(c.time).toLocaleTimeString());
-  const prices = candles.map(c => c.close);
+async function generateChartImage(candles, symbol, timeframe, levels, sma5, sma15) {
+  const width = 800;
+  const height = 400;
+  const chartJSNodeCanvas = new ChartJSNodeCanvas({ width, height });
 
-  const sma5Full = Array(candles.length - sma5.length).fill(null).concat(sma5);
-  const sma15Full = Array(candles.length - sma15.length).fill(null).concat(sma15);
+  const closes = candles.map(c => c.close);
+  const labels = candles.map((_, i) => i + 1);
 
-  const annotations = {};
-  analysis.supports.forEach((level, i) => {
-    annotations[`support${i}`] = {
-      type: 'line',
-      yMin: level,
-      yMax: level,
+  // Для SMA сдвигаем, чтобы длины совпадали с closes
+  const sma5Full = Array(closes.length - sma5.length).fill(null).concat(sma5);
+  const sma15Full = Array(closes.length - sma15.length).fill(null).concat(sma15);
+
+  const datasets = [
+    {
+      label: 'Цена (Close)',
+      data: closes,
+      borderColor: 'blue',
+      fill: false,
+      pointRadius: 0,
+      borderWidth: 1.5,
+    },
+    {
+      label: 'SMA 5',
+      data: sma5Full,
       borderColor: 'green',
-      borderWidth: 2,
-      label: {
-        content: `Support ${i + 1}`,
-        enabled: true,
-        position: 'start',
-        backgroundColor: 'rgba(0,128,0,0.5)',
-      },
-    };
-  });
-  analysis.resistances.forEach((level, i) => {
-    annotations[`resistance${i}`] = {
-      type: 'line',
-      yMin: level,
-      yMax: level,
+      fill: false,
+      pointRadius: 0,
+      borderWidth: 1.5,
+    },
+    {
+      label: 'SMA 15',
+      data: sma15Full,
       borderColor: 'red',
-      borderWidth: 2,
-      label: {
-        content: `Resistance ${i + 1}`,
-        enabled: true,
-        position: 'start',
-        backgroundColor: 'rgba(255,0,0,0.5)',
-      },
-    };
-  });
+      fill: false,
+      pointRadius: 0,
+      borderWidth: 1.5,
+    },
+  ];
 
-  const chartConfig = {
+  // Добавим уровни поддержки и сопротивления как горизонтальные линии
+  const supportLines = levels.supports.map(level => ({
+    label: 'Поддержка',
+    data: Array(closes.length).fill(level),
+    borderColor: 'darkgreen',
+    borderDash: [5, 5],
+    fill: false,
+    pointRadius: 0,
+    borderWidth: 1,
+  }));
+  const resistanceLines = levels.resistances.map(level => ({
+    label: 'Сопротивление',
+    data: Array(closes.length).fill(level),
+    borderColor: 'darkred',
+    borderDash: [5, 5],
+    fill: false,
+    pointRadius: 0,
+    borderWidth: 1,
+  }));
+
+  datasets.push(...supportLines, ...resistanceLines);
+
+  const configuration = {
     type: 'line',
     data: {
       labels,
-      datasets: [
-        {
-          label: `${symbol} Close Price`,
-          data: prices,
-          borderColor: 'rgba(33, 150, 243, 1)',
-          backgroundColor: 'rgba(33, 150, 243, 0.2)',
-          fill: true,
-          tension: 0.1,
-        },
-        {
-          label: 'SMA 5',
-          data: sma5Full,
-          borderColor: 'orange',
-          fill: false,
-          tension: 0.1,
-        },
-        {
-          label: 'SMA 15',
-          data: sma15Full,
-          borderColor: 'purple',
-          fill: false,
-          tension: 0.1,
-        },
-      ],
+      datasets,
     },
     options: {
       plugins: {
         title: {
           display: true,
-          text: `${symbol} (${timeframe})`,
+          text: `${symbol} — Таймфрейм: ${timeframe}`,
           font: { size: 18 },
         },
-        annotation: {
-          annotations,
-        },
+        legend: { display: true },
       },
       scales: {
-        x: { display: true },
-        y: { display: true },
+        x: { display: false },
+        y: { beginAtZero: false },
+      },
+      elements: {
+        line: { tension: 0 },
       },
     },
   };
 
-  const encodedConfig = encodeURIComponent(JSON.stringify(chartConfig));
-  const url = `https://quickchart.io/chart?c=${encodedConfig}&format=png&width=900&height=500`;
-
-  const response = await axios.get(url, { responseType: 'arraybuffer' });
-  return Buffer.from(response.data, 'binary');
+  return await chartJSNodeCanvas.renderToBuffer(configuration);
 }
 
 bot.command('analyze', async (ctx) => {
   try {
     const args = ctx.message.text.split(' ');
-    const symbol = args[1] || 'BTCUSDT';
-    const timeframe = args[2] || '1m';
+    const symbol = args[1] ? args[1].toUpperCase() : 'BTCUSDT';
+    const timeframe = args[2] ? args[2].toLowerCase() : '1m';
 
     const candles = await fetchCandles(symbol, timeframe);
     if (!candles || candles.length === 0) {
@@ -266,15 +253,15 @@ bot.command('analyze', async (ctx) => {
     const recommendation = generateTradeRecommendations(trend, rsi, stochastic.map(s => s.k), macd, closes, levels);
 
     const analysisText = `${trend}\n\n${indicatorsAnalysis}\n\n` +
-      `Поддержка: ${levels.supports.map(l => l.toFixed(2)).join(', ')}\n` +
-      `Сопротивление: ${levels.resistances.map(l => l.toFixed(2)).join(', ')}\n\n` +
+      `Поддержка: ${levels.supports.length ? levels.supports.map(l => l.toFixed(2)).join(', ') : 'нет'}\n` +
+      `Сопротивление: ${levels.resistances.length ? levels.resistances.map(l => l.toFixed(2)).join(', ') : 'нет'}\n\n` +
       `${recommendation}`;
 
-    const chartBuffer = await generateChartQuickChart(candles, symbol, timeframe, levels, sma5, sma15);
+    const chartBuffer = await generateChartImage(candles, symbol, timeframe, levels, sma5, sma15);
 
     await ctx.replyWithPhoto(
       { source: chartBuffer },
-      { caption: analysisText, parse_mode: 'Markdown' }
+      { caption: analysisText }
     );
   } catch (error) {
     console.error(error);
@@ -282,6 +269,10 @@ bot.command('analyze', async (ctx) => {
   }
 });
 
-bot.launch();
+bot.launch().then(() => {
+  console.log('Бот запущен');
+});
 
-console.log('Бот запущен');
+// Graceful stop
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));
