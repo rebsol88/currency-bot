@@ -6,7 +6,7 @@ import annotationPlugin from 'chartjs-plugin-annotation';
 // --- Настройки ---
 const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
 const bot = new Telegraf(BOT_TOKEN);
-bot.use(session()); // обязательно подключить middleware session до обработчиков
+bot.use(session());
 
 const pairsMain = [
   'EURUSD', 'USDJPY', 'GBPUSD', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD', 'EURGBP',
@@ -40,7 +40,6 @@ const chartJSNodeCanvas = new ChartJSNodeCanvas({
   },
 });
 
-// --- Отображаемые имена пар для кнопок ---
 const displayNames = {
   EURUSD: 'EUR/USD', USDJPY: 'USD/JPY', GBPUSD: 'GBP/USD', USDCHF: 'USD/CHF',
   AUDUSD: 'AUD/USD', USDCAD: 'USD/CAD', NZDUSD: 'NZD/USD', EURGBP: 'EUR/GBP',
@@ -53,7 +52,6 @@ const displayNames = {
 };
 
 // --- Генерация OHLC ---
-
 function getBasePrice(pair) {
   if (pair.startsWith('OTC_')) {
     return 1.2 + (Math.random() - 0.5) * 0.3;
@@ -92,8 +90,7 @@ function generateFakeOHLCFromTime(startTimeMs, count, intervalMinutes, pair) {
   return data;
 }
 
-// --- Функции индикаторов ---
-
+// --- Индикаторы ---
 function calculateSMA(data, period) {
   const sma = [];
   for (let i = 0; i < data.length; i++) {
@@ -150,7 +147,6 @@ function calculateMACD(data, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9)
   const emaSlow = calculateEMA(data, slowPeriod);
   const macdLine = emaFast.map((val, idx) => val - emaSlow[idx]);
   const signalLine = calculateEMA(macdLine.slice(slowPeriod - 1), signalPeriod);
-  // Сдвигаем signalLine, чтобы выровнять по длине с macdLine:
   const signalLineFull = Array(slowPeriod - 1 + signalPeriod - 1).fill(null).concat(signalLine);
   const histogram = macdLine.map((val, idx) =>
     (val !== null && signalLineFull[idx] !== null) ? val - signalLineFull[idx] : null
@@ -189,7 +185,6 @@ function calculateStochastic(klines, kPeriod = 14, dPeriod = 3) {
 }
 
 function findSupportResistance(klines) {
-  // Простая реализация: берем локальные минимумы/максимумы за последние 50 свечей
   const supports = [];
   const resistances = [];
   const len = klines.length;
@@ -199,44 +194,146 @@ function findSupportResistance(klines) {
     if (klines[i].low === Math.min(...lows)) supports.push(klines[i].low);
     if (klines[i].high === Math.max(...highs)) resistances.push(klines[i].high);
   }
-  // Оставим максимум 3 поддержки и сопротивления, уникальные и отсортированные
   const uniqSupports = [...new Set(supports)].sort((a, b) => a - b).slice(0, 3);
   const uniqResistances = [...new Set(resistances)].sort((a, b) => b - a).slice(0, 3);
   return { supports: uniqSupports, resistances: uniqResistances };
 }
 
+// --- Улучшенный анализ с подробным описанием ---
 function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances) {
+  const last = klines.length - 1;
+  const price = klines[last].close;
+
   let text = '';
 
-  const last = klines.length - 1;
+  // Анализ SMA
   if (sma5[last] !== null && sma15[last] !== null) {
-    if (sma5[last] > sma15[last]) text += 'SMA5 выше SMA15 — восходящий тренд.\n';
-    else text += 'SMA5 ниже SMA15 — нисходящий тренд.\n';
+    if (sma5[last] > sma15[last]) {
+      text += `SMA(5) выше SMA(15) — возможен восходящий тренд.\n`;
+    } else if (sma5[last] < sma15[last]) {
+      text += `SMA(5) ниже SMA(15) — возможен нисходящий тренд.\n`;
+    } else {
+      text += `SMA(5) примерно равна SMA(15) — тренд не выражен.\n`;
+    }
+  } else {
+    text += `Недостаточно данных для анализа SMA.\n`;
+  }
+
+  // Анализ RSI
+  if (rsi[last] !== null) {
+    const rsiVal = rsi[last];
+    if (rsiVal > 70) {
+      text += `RSI = ${rsiVal.toFixed(1)} — перекупленность.\n`;
+    } else if (rsiVal < 30) {
+      text += `RSI = ${rsiVal.toFixed(1)} — перепроданность.\n`;
+    } else {
+      text += `RSI = ${rsiVal.toFixed(1)} — нет явных сигналов по RSI.\n`;
+    }
+  } else {
+    text += `Недостаточно данных для анализа RSI.\n`;
+  }
+
+  // Анализ MACD
+  if (macd.macdLine[last] !== null && macd.signalLine[last] !== null) {
+    if (macd.macdLine[last] > macd.signalLine[last]) {
+      text += `MACD — бычий сигнал.\n`;
+    } else if (macd.macdLine[last] < macd.signalLine[last]) {
+      text += `MACD — медвежий сигнал.\n`;
+    } else {
+      text += `MACD не показывает явных сигналов.\n`;
+    }
+  } else {
+    text += `Недостаточно данных для анализа MACD.\n`;
+  }
+
+  // Анализ Stochastic
+  if (stochastic.kValues[last] !== null && stochastic.dValues[last] !== null) {
+    const k = stochastic.kValues[last];
+    const d = stochastic.dValues[last];
+    if (k < 20) {
+      if (k > d && stochastic.kValues[last - 1] <= stochastic.dValues[last - 1]) {
+        text += `Стохастик в зоне перепроданности и %K пересекает %D снизу вверх — сигнал на покупку.\n`;
+      } else {
+        text += `Стохастик в зоне перепроданности — возможен разворот.\n`;
+      }
+    } else if (k > 80) {
+      if (k < d && stochastic.kValues[last - 1] >= stochastic.dValues[last - 1]) {
+        text += `Стохастик в зоне перекупленности и %K пересекает %D сверху вниз — сигнал на продажу.\n`;
+      } else {
+        text += `Стохастик в зоне перекупленности — возможен разворот.\n`;
+      }
+    } else {
+      if (k > d) {
+        text += `Стохастик — бычий сигнал.\n`;
+      } else if (k < d) {
+        text += `Стохастик — медвежий сигнал.\n`;
+      } else {
+        text += `Стохастик не показывает явных сигналов.\n`;
+      }
+    }
+  } else {
+    text += `Недостаточно данных для анализа Стохастика.\n`;
+  }
+
+  // Поддержки и сопротивления
+  if (supports.length > 0) {
+    text += `Поддержки: ${supports.map(p => p.toFixed(5)).join(', ')}.\n`;
+  }
+  if (resistances.length > 0) {
+    text += `Сопротивления: ${resistances.map(p => p.toFixed(5)).join(', ')}.\n`;
+  }
+
+  // Близость цены к уровням
+  const threshold = 0.0015; // допустимое отклонение для близости
+  const closeSupports = supports.filter(s => Math.abs(price - s) / s < threshold);
+  const closeResistances = resistances.filter(r => Math.abs(price - r) / r < threshold);
+
+  if (closeSupports.length > 0) {
+    text += `Цена близка к уровню поддержки около ${closeSupports[0].toFixed(5)}.\n`;
+  }
+  if (closeResistances.length > 0) {
+    text += `Цена близка к уровню сопротивления около ${closeResistances[0].toFixed(5)}.\n`;
+  }
+
+  // Итоговая рекомендация
+  // Пример простой логики для рекомендации:
+  const bullishSignals = [];
+  const bearishSignals = [];
+
+  if (sma5[last] !== null && sma15[last] !== null) {
+    if (sma5[last] > sma15[last]) bullishSignals.push('SMA');
+    else if (sma5[last] < sma15[last]) bearishSignals.push('SMA');
   }
 
   if (rsi[last] !== null) {
-    if (rsi[last] > 70) text += 'RSI выше 70 — перекупленность.\n';
-    else if (rsi[last] < 30) text += 'RSI ниже 30 — перепроданность.\n';
+    if (rsi[last] < 30) bullishSignals.push('RSI');
+    else if (rsi[last] > 70) bearishSignals.push('RSI');
   }
 
   if (macd.macdLine[last] !== null && macd.signalLine[last] !== null) {
-    if (macd.macdLine[last] > macd.signalLine[last]) text += 'MACD — бычий сигнал.\n';
-    else text += 'MACD — медвежий сигнал.\n';
+    if (macd.macdLine[last] > macd.signalLine[last]) bullishSignals.push('MACD');
+    else if (macd.macdLine[last] < macd.signalLine[last]) bearishSignals.push('MACD');
   }
 
   if (stochastic.kValues[last] !== null && stochastic.dValues[last] !== null) {
-    if (stochastic.kValues[last] > stochastic.dValues[last]) text += 'Stochastic — бычий сигнал.\n';
-    else text += 'Stochastic — медвежий сигнал.\n';
+    const k = stochastic.kValues[last];
+    const d = stochastic.dValues[last];
+    if (k < 20 && k > d && stochastic.kValues[last - 1] <= stochastic.dValues[last - 1]) bullishSignals.push('Stochastic');
+    else if (k > 80 && k < d && stochastic.kValues[last - 1] >= stochastic.dValues[last - 1]) bearishSignals.push('Stochastic');
   }
 
-  if (supports.length) text += `Поддержки: ${supports.map(p => p.toFixed(5)).join(', ')}.\n`;
-  if (resistances.length) text += `Сопротивления: ${resistances.map(p => p.toFixed(5)).join(', ')}.\n`;
+  if (bullishSignals.length > 0 && bearishSignals.length === 0) {
+    text += `\nРЕКОМЕНДАЦИЯ: Преобладают бычьи сигналы (${bullishSignals.join(', ')}), возможна покупка.`;
+  } else if (bearishSignals.length > 0 && bullishSignals.length === 0) {
+    text += `\nРЕКОМЕНДАЦИЯ: Преобладают медвежьи сигналы (${bearishSignals.join(', ')}), возможна продажа.`;
+  } else {
+    text += `\nРЕКОМЕНДАЦИЯ: Рынок не определился, рекомендуем воздержаться от сделок или дождаться подтверждающих сигналов.`;
+  }
 
-  return text || 'Нет достаточных данных для анализа.';
+  return text;
 }
 
 // --- Функция отрисовки графика ---
-
 async function drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances, timeframeMinutes) {
   const labels = klines.map(k => {
     const d = new Date(k.openTime);
@@ -441,19 +538,14 @@ async function drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, r
 }
 
 // --- Telegram Bot ---
-
 bot.start(async (ctx) => {
   if (!ctx.session) ctx.session = {};
 
-  // Левая колонка — основные пары
   const mainButtons = pairsMain.map(p => Markup.button.callback(displayNames[p], `pair_${p}`));
-
-  // Правая колонка — заголовок OTC (неактивная кнопка) + кнопки OTC
   const otcHeader = [Markup.button.callback('OTC', 'noop')];
   const otcButtons = pairsOTC.map(p => Markup.button.callback(displayNames[p], `pair_${p}`));
 
   const maxRows = Math.max(mainButtons.length, otcButtons.length + 1);
-
   const keyboard = [];
 
   for (let i = 0; i < maxRows; i++) {
