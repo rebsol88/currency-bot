@@ -1,6 +1,6 @@
 import { Telegraf, Markup, session } from 'telegraf';
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
-import Chart from 'chart.js/auto';
+import { Chart } from 'chart.js';
 import annotationPlugin from 'chartjs-plugin-annotation';
 
 // --- Настройки ---
@@ -28,11 +28,13 @@ const timeframes = [
 
 const width = 900;
 const height = 600;
+
 const chartJSNodeCanvas = new ChartJSNodeCanvas({
   width,
   height,
-  plugins: {
-    modern: [annotationPlugin],
+  chartJs: Chart,
+  chartCallback: (ChartJS) => {
+    ChartJS.register(annotationPlugin);
   },
 });
 
