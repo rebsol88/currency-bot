@@ -1,6 +1,8 @@
 import { Telegraf, Markup } from 'telegraf';
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
 
+console.log('Запуск бота...');
+
 if (!process.env.BOT_TOKEN) {
   console.error('Ошибка: BOT_TOKEN не задана в переменных окружения');
   process.exit(1);
@@ -186,9 +188,15 @@ bot.action(/tf_(.+)/, async (ctx) => {
   userSessions.delete(ctx.from.id);
 });
 
-bot.launch().then(() => {
-  console.log('Бот запущен');
-});
+(async () => {
+  try {
+    await bot.launch();
+    console.log('Бот запущен');
+  } catch (err) {
+    console.error('Ошибка запуска бота:', err);
+    process.exit(1);
+  }
+})();
 
 // graceful stop
 process.once('SIGINT', () => bot.stop('SIGINT'));
