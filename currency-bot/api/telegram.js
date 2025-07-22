@@ -268,20 +268,4 @@ bot.command('analyze', async (ctx) => {
 });
 
 // Экспорт webhook handler для Vercel
-const handler = bot.webhookCallback('/api/telegram');
-export default handler;
-
-/*
-ВАЖНО:
-
-1) В Telegram нужно установить webhook на URL вашего деплоя + /api/telegram
-   Например, если ваш сайт https://myapp.vercel.app
-   то webhook URL будет https://myapp.vercel.app/api/telegram
-
-2) Установить webhook можно через Bot API:
-   https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=https://myapp.vercel.app/api/telegram
-
-3) В Vercel в настройках проекта добавьте переменную окружения BOT_TOKEN с токеном вашего бота.
-
-4) Запустите деплой — бот будет принимать обновления через webhook.
-*/
+export default bot.webhookCallback('/api/telegram');
