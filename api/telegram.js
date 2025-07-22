@@ -8,6 +8,7 @@
 
 import { Telegraf, Markup, session } from 'telegraf';
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
+import annotationPlugin from 'chartjs-plugin-annotation';
 
 // --- Настройки ---
 const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
@@ -36,36 +37,35 @@ const timeframes = [
 
 const width = 900;
 const height = 600;
-const chartJSNodeCanvas = new ChartJSNodeCanvas({ width, height });
+const chartJSNodeCanvas = new ChartJSNodeCanvas({
+  width,
+  height,
+  plugins: {
+    modern: [annotationPlugin],
+  },
+});
 
 // --- Генерация OHLC ---
 
 function getBasePrice(pair) {
-  // Для обычных пар около 1.0-1.5, для OTC чуть выше и с разным разбросом
   if (pair.startsWith('OTC_')) {
-    // Примерная базовая цена для OTC валютных пар — 1.2 ±0.3
     return 1.2 + (Math.random() - 0.5) * 0.3;
   } else {
     return 1 + (Math.random() - 0.5) * 0.5;
   }
 }
 
-/**
- * Генерация OHLC сессии с count свечами и интервалом intervalMinutes
- * Данные меняются в зависимости от таймфрейма и пары
- */
 function generateFakeOHLC(count, intervalMinutes, pair) {
   const basePrice = getBasePrice(pair);
   let price = basePrice;
 
-  const volatility = pair.startsWith('OTC_') ? 0.003 : 0.0018; // чуть выше для OTC
+  const volatility = pair.startsWith('OTC_') ? 0.003 : 0.0018;
   const data = [];
   const startTime = new Date();
   startTime.setUTCHours(0, 0, 0, 0);
   let time = startTime.getTime();
 
   for (let i = 0; i < count; i++) {
-    // Изменения цены с трендом и случайностью
     const trend = Math.sin(i / 10) * volatility * 0.5;
     const randChange = (Math.random() - 0.5) * volatility;
     const open = price;
@@ -89,7 +89,6 @@ function generateFakeOHLC(count, intervalMinutes, pair) {
 
 // --- Индикаторы ---
 
-// SMA
 function calculateSMA(data, period) {
   const sma = [];
   for (let i = 0; i < data.length; i++) {
@@ -103,7 +102,6 @@ function calculateSMA(data, period) {
   return sma;
 }
 
-// RSI
 function calculateRSI(data, period = 14) {
   const rsi = [];
   let gains = 0;
@@ -131,7 +129,6 @@ function calculateRSI(data, period = 14) {
   return rsi;
 }
 
-// MACD (12,26,9)
 function calculateMACD(data, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9) {
   function EMA(data, period) {
     const k = 2 / (period + 1);
@@ -146,17 +143,14 @@ function calculateMACD(data, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9)
   const emaFast = EMA(data, fastPeriod);
   const emaSlow = EMA(data, slowPeriod);
   const macdLine = emaFast.map((v, i) => (emaSlow[i] !== undefined ? v - emaSlow[i] : null));
-  const signalLine = EMA(macdLine.filter(v => v !== null), signalPeriod);
-  // signalLine короче, надо сдвинуть и добавить null в начало
-  const signalFull = Array(macdLine.length - signalLine.length).fill(null).concat(signalLine);
-  const histogram = macdLine.map((v, i) => (v !== null && signalFull[i] !== null ? v - signalFull[i] : null));
+  const signalLineRaw = EMA(macdLine.filter(v => v !== null), signalPeriod);
+  const signalLine = Array(macdLine.length - signalLineRaw.length).fill(null).concat(signalLineRaw);
+  const histogram = macdLine.map((v, i) => (v !== null && signalLine[i] !== null ? v - signalLine[i] : null));
 
-  return { macdLine, signalLine: signalFull, histogram };
+  return { macdLine, signalLine, histogram };
 }
 
-// Стохастик (14,3,3)
 function calculateStochastic(data, kPeriod = 14, dPeriod = 3) {
-  // data = массив объектов с high, low, close
   const kValues = [];
   for (let i = 0; i < data.length; i++) {
     if (i < kPeriod - 1) {
@@ -170,16 +164,14 @@ function calculateStochastic(data, kPeriod = 14, dPeriod = 3) {
     const k = lowMin === highMax ? 0 : ((close - lowMin) / (highMax - lowMin)) * 100;
     kValues.push(k);
   }
-  // D - SMA от K
-  const dValues = calculateSMA(kValues.filter(v => v !== null), dPeriod);
-  // dValues короче, надо сдвинуть и добавить null в начало
-  const dFull = Array(kValues.length - dValues.length).fill(null).concat(dValues);
+  const dValuesRaw = calculateSMA(kValues.filter(v => v !== null), dPeriod);
+  const dValues = Array(kValues.length - dValuesRaw.length).fill(null).concat(dValuesRaw);
 
-  return { kValues, dValues: dFull };
+  return { kValues, dValues };
 }
 
 // --- Линии поддержки и сопротивления ---
-// Простая логика: локальные минимумы и максимумы (сдвиг ±2 свечи)
+
 function findSupportResistance(data) {
   const supports = [];
   const resistances = [];
@@ -189,7 +181,6 @@ function findSupportResistance(data) {
     if (data[i].low === Math.min(...lows)) supports.push({ index: i, price: data[i].low });
     if (data[i].high === Math.max(...highs)) resistances.push({ index: i, price: data[i].high });
   }
-  // Возьмем по 3 наиболее часто встречающихся уровней (округлим до 4 знаков)
   function frequentLevels(levels) {
     const rounded = levels.map(l => Math.round(l.price * 10000) / 10000);
     const counts = {};
@@ -208,25 +199,15 @@ function findSupportResistance(data) {
 async function drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances) {
   const labels = klines.map(k => {
     const d = new Date(k.openTime);
-    return d.toISOString().substr(11, 5); // HH:MM
+    return d.toISOString().substr(11, 5);
   });
   const closes = klines.map(k => k.close);
-
-  // Для MACD и Стохастика возьмем последние 50 точек (если есть)
-  const macdLength = macd.macdLine.length;
-  const macdStart = Math.max(0, macdLength - 50);
-  const macdLabels = labels.slice(macdStart);
-
-  const stochasticLength = stochastic.kValues.length;
-  const stochasticStart = Math.max(0, stochasticLength - 50);
-  const stochasticLabels = labels.slice(stochasticStart);
 
   const configuration = {
     type: 'line',
     data: {
       labels,
       datasets: [
-        // Цена Close
         {
           label: 'Цена Close',
           data: closes,
@@ -236,7 +217,6 @@ async function drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, r
           pointRadius: 0,
           yAxisID: 'y',
         },
-        // SMA 5
         {
           label: 'SMA 5',
           data: sma5,
@@ -247,7 +227,6 @@ async function drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, r
           pointRadius: 0,
           yAxisID: 'y',
         },
-        // SMA 15
         {
           label: 'SMA 15',
           data: sma15,
@@ -258,7 +237,6 @@ async function drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, r
           pointRadius: 0,
           yAxisID: 'y',
         },
-        // RSI (нижняя панель)
         {
           label: 'RSI',
           data: rsi,
@@ -268,9 +246,7 @@ async function drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, r
           yAxisID: 'yRSI',
           spanGaps: true,
           pointRadius: 0,
-          stepped: false,
         },
-        // MACD Line (нижняя панель)
         {
           label: 'MACD',
           data: macd.macdLine,
@@ -281,7 +257,6 @@ async function drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, r
           spanGaps: true,
           pointRadius: 0,
         },
-        // MACD Signal
         {
           label: 'MACD Signal',
           data: macd.signalLine,
@@ -292,7 +267,6 @@ async function drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, r
           spanGaps: true,
           pointRadius: 0,
         },
-        // Стохастик %K (нижняя панель)
         {
           label: 'Stochastic %K',
           data: stochastic.kValues,
@@ -303,7 +277,6 @@ async function drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, r
           spanGaps: true,
           pointRadius: 0,
         },
-        // Стохастик %D
         {
           label: 'Stochastic %D',
           data: stochastic.dValues,
@@ -323,6 +296,48 @@ async function drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, r
       plugins: {
         legend: { position: 'top' },
         title: { display: true, text: 'Аналитика по выбранной паре' },
+        annotation: {
+          annotations: {
+            ...supports.reduce((acc, price, idx) => {
+              acc[`support${idx}`] = {
+                type: 'line',
+                yMin: price,
+                yMax: price,
+                borderColor: 'green',
+                borderWidth: 1,
+                borderDash: [6, 4],
+                label: {
+                  content: `Поддержка ${idx + 1}`,
+                  enabled: true,
+                  position: 'start',
+                  backgroundColor: 'green',
+                  color: 'white',
+                },
+                yScaleID: 'y',
+              };
+              return acc;
+            }, {}),
+            ...resistances.reduce((acc, price, idx) => {
+              acc[`resistance${idx}`] = {
+                type: 'line',
+                yMin: price,
+                yMax: price,
+                borderColor: 'red',
+                borderWidth: 1,
+                borderDash: [6, 4],
+                label: {
+                  content: `Сопротивление ${idx + 1}`,
+                  enabled: true,
+                  position: 'start',
+                  backgroundColor: 'red',
+                  color: 'white',
+                },
+                yScaleID: 'y',
+              };
+              return acc;
+            }, {}),
+          },
+        },
       },
       scales: {
         y: {
@@ -369,50 +384,7 @@ async function drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, r
           ticks: { maxRotation: 90, minRotation: 45 },
         },
       },
-      annotation: {
-        annotations: {
-          ...supports.reduce((acc, price, idx) => {
-            acc[`support${idx}`] = {
-              type: 'line',
-              yMin: price,
-              yMax: price,
-              borderColor: 'green',
-              borderWidth: 1,
-              borderDash: [6, 4],
-              label: {
-                content: `Поддержка ${idx + 1}`,
-                enabled: true,
-                position: 'start',
-                backgroundColor: 'green',
-                color: 'white',
-              },
-              yScaleID: 'y',
-            };
-            return acc;
-          }, {}),
-          ...resistances.reduce((acc, price, idx) => {
-            acc[`resistance${idx}`] = {
-              type: 'line',
-              yMin: price,
-              yMax: price,
-              borderColor: 'red',
-              borderWidth: 1,
-              borderDash: [6, 4],
-              label: {
-                content: `Сопротивление ${idx + 1}`,
-                enabled: true,
-                position: 'start',
-                backgroundColor: 'red',
-                color: 'white',
-              },
-              yScaleID: 'y',
-            };
-            return acc;
-          }, {}),
-        },
-      },
     },
-    plugins: [require('chartjs-plugin-annotation')],
   };
 
   return await chartJSNodeCanvas.renderToBuffer(configuration);
@@ -423,7 +395,6 @@ async function drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, r
 function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances) {
   let text = '';
 
-  // Анализ SMA
   const last = klines.length - 1;
   const prev = last - 1;
   if (prev < 0) return 'Недостаточно данных для анализа.';
@@ -439,14 +410,12 @@ function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports,
     else text += 'SMA(5) и SMA(15) близки — тренд не выражен.\n';
   }
 
-  // RSI
   if (rsi[last] !== null) {
     if (rsi[last] > 70) text += `RSI = ${rsi[last].toFixed(1)} — перекупленность, возможен разворот вниз.\n`;
     else if (rsi[last] < 30) text += `RSI = ${rsi[last].toFixed(1)} — перепроданность, возможен разворот вверх.\n`;
     else text += `RSI = ${rsi[last].toFixed(1)} — нет явных сигналов по RSI.\n`;
   }
 
-  // MACD
   if (macd.macdLine[last] !== null && macd.signalLine[last] !== null) {
     const macdDiffPrev = macd.macdLine[prev] - macd.signalLine[prev];
     const macdDiffCurr = macd.macdLine[last] - macd.signalLine[last];
@@ -455,7 +424,6 @@ function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports,
     else text += 'MACD не показывает явных сигналов.\n';
   }
 
-  // Стохастик
   if (stochastic.kValues[last] !== null && stochastic.dValues[last] !== null) {
     const k = stochastic.kValues[last];
     const d = stochastic.dValues[last];
@@ -464,7 +432,6 @@ function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports,
     else text += 'Стохастик не показывает явных сигналов.\n';
   }
 
-  // Поддержка / сопротивление
   const lastClose = klines[last].close;
   const nearSupport = supports.find(s => Math.abs(s - lastClose) / lastClose < 0.005);
   const nearResistance = resistances.find(r => Math.abs(r - lastClose) / lastClose < 0.005);
@@ -472,7 +439,6 @@ function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports,
   if (nearSupport !== undefined) text += `Цена близка к уровню поддержки около ${nearSupport.toFixed(5)}.\n`;
   if (nearResistance !== undefined) text += `Цена близка к уровню сопротивления около ${nearResistance.toFixed(5)}.\n`;
 
-  // Итоговая рекомендация
   if (crossUp || (rsi[last] < 30 && stochastic.kValues[last] < 20)) {
     text += '\nРЕКОМЕНДАЦИЯ: Рассмотрите покупку — возможен рост цены.\n';
   } else if (crossDown || (rsi[last] > 70 && stochastic.kValues[last] > 80)) {
@@ -541,14 +507,6 @@ bot.action(/tf_(.+)/, async (ctx) => {
   const macd = calculateMACD(closes, 12, 26, 9);
   const stochastic = calculateStochastic(klines, 14, 3);
   const { supports, resistances } = findSupportResistance(klines);
-
-  try {
-    // Для chartjs-plugin-annotation нужен импорт плагина, добавим динамически
-    const annotationPlugin = await import('chartjs-plugin-annotation');
-    ChartJSNodeCanvas.registerFont = annotationPlugin.register;
-  } catch (e) {
-    // Игнорируем, если плагин не подключился (он нужен для линий поддержки/сопротивления)
-  }
 
   const chartBuffer = await drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances);
   const analysisText = analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances);
