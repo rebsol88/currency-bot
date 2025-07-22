@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "dependencies": {
     "technicalindicators": "^3.1.0",
-    "telegraf": "^4.12.0"
+    "telegraf": "^4.12.0",
+    "chartjs-node-canvas": "^4.1.7"
   },
   "scripts": {
     "start": "node bot.js"
