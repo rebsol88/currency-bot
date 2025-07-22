@@ -10,7 +10,7 @@ import { Telegraf, Markup, session } from 'telegraf';
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
 
 // --- Настройки ---
-const BOT_TOKEN = 'ВАШ_ТОКЕН_ТЕЛЕГРАМ';
+const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
 const bot = new Telegraf(BOT_TOKEN);
 bot.use(session());
 
