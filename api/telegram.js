@@ -1,12 +1,12 @@
 import { Telegraf, Markup, session } from 'telegraf';
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
-import Chart from 'chart.js/auto/auto.js';  // <-- заменено здесь
+import Chart from 'chart.js/auto/auto.js';
 import annotationPlugin from 'chartjs-plugin-annotation';
 
 // --- Настройки ---
 const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
 const bot = new Telegraf(BOT_TOKEN);
-bot.use(session());
+bot.use(session()); // обязательно подключить middleware session до обработчиков
 
 const pairsMain = [
   'EURUSD', 'USDJPY', 'GBPUSD', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD', 'EURGBP',
@@ -42,12 +42,10 @@ const chartJSNodeCanvas = new ChartJSNodeCanvas({
 
 // --- Отображаемые имена пар для кнопок ---
 const displayNames = {
-  // Основные пары
   EURUSD: 'EUR/USD', USDJPY: 'USD/JPY', GBPUSD: 'GBP/USD', USDCHF: 'USD/CHF',
   AUDUSD: 'AUD/USD', USDCAD: 'USD/CAD', NZDUSD: 'NZD/USD', EURGBP: 'EUR/GBP',
   EURJPY: 'EUR/JPY', GBPJPY: 'GBP/JPY', CHFJPY: 'CHF/JPY', AUDJPY: 'AUD/JPY',
   EURCHF: 'EUR/CHF', EURCAD: 'EUR/CAD', AUDCAD: 'AUD/CAD', NZDJPY: 'NZD/JPY',
-  // OTC пары
   OTC_EURAUD: 'OTC EUR/AUD', OTC_EURCAD: 'OTC EUR/CAD', OTC_EURCHF: 'OTC EUR/CHF', OTC_EURJPY: 'OTC EUR/JPY',
   OTC_EURNZD: 'OTC EUR/NZD', OTC_EURUSD: 'OTC EUR/USD', OTC_GBPCHF: 'OTC GBP/CHF', OTC_GBPJPY: 'OTC GBP/JPY',
   OTC_GBPNZD: 'OTC GBP/NZD', OTC_GBPUSD: 'OTC GBP/USD', OTC_USDCAD: 'OTC USD/CAD', OTC_USDCHF: 'OTC USD/CHF',
@@ -64,7 +62,6 @@ function getBasePrice(pair) {
   }
 }
 
-// Генерация данных с заданного времени
 function generateFakeOHLCFromTime(startTimeMs, count, intervalMinutes, pair) {
   const basePrice = getBasePrice(pair);
   let price = basePrice;
@@ -95,11 +92,9 @@ function generateFakeOHLCFromTime(startTimeMs, count, intervalMinutes, pair) {
   return data;
 }
 
-// --- Индикаторы и другие функции остаются без изменений ---
+// --- Вставьте сюда ваши функции calculateSMA, calculateRSI, calculateMACD, calculateStochastic, findSupportResistance, analyzeIndicators ---
 
-// (Скопируйте сюда ваши функции calculateSMA, calculateRSI, calculateMACD, calculateStochastic, findSupportResistance, analyzeIndicators)
-
-// --- График с упрощением для 1 минуты ---
+// --- Функция отрисовки графика ---
 
 async function drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances, timeframeMinutes) {
   const labels = klines.map(k => {
@@ -108,7 +103,6 @@ async function drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, r
   });
   const closes = klines.map(k => k.close);
 
-  // Для 1 минуты показываем только цену и SMA
   const isOneMinute = timeframeMinutes === 1;
 
   const datasets = [
@@ -308,42 +302,26 @@ async function drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, r
 // --- Telegram Bot ---
 
 bot.start(async (ctx) => {
-  ctx.session = {};
-
-  // Формируем кнопки: 2 колонки — левая с основными, правая с OTC
-  // Для удобства сделаем 2 ряда кнопок с заголовком OTC
+  if (!ctx.session) ctx.session = {}; // инициализируем сессию, если нет
 
   // Левая колонка — основные пары
   const mainButtons = pairsMain.map(p => Markup.button.callback(displayNames[p], `pair_${p}`));
 
-  // Правая колонка — заголовок OTC (не кликабельный) + кнопки OTC
-  const otcHeader = [Markup.button.callback('OTC', 'noop')]; // noop — заглушка
+  // Правая колонка — заголовок OTC (неактивная кнопка) + кнопки OTC
+  const otcHeader = [Markup.button.callback('OTC', 'noop')];
   const otcButtons = pairsOTC.map(p => Markup.button.callback(displayNames[p], `pair_${p}`));
 
-  // Формируем клавиатуру с 2 колонками
-  // Для этого сделаем массив строк, где каждая строка — массив из 2 кнопок: main и otc (если есть)
-  const maxRows = Math.max(mainButtons.length, otcButtons.length + 1); // +1 для заголовка OTC
+  const maxRows = Math.max(mainButtons.length, otcButtons.length + 1);
 
   const keyboard = [];
 
   for (let i = 0; i < maxRows; i++) {
     const row = [];
-    // Левая колонка
-    if (i < mainButtons.length) {
-      row.push(mainButtons[i]);
-    } else {
-      row.push(Markup.button.callback(' ', 'noop')); // пустая кнопка для выравнивания
-    }
-    // Правая колонка
+    row.push(i < mainButtons.length ? mainButtons[i] : Markup.button.callback(' ', 'noop'));
     if (i === 0) {
       row.push(otcHeader[0]);
     } else {
-      const otcBtn = otcButtons[i - 1];
-      if (otcBtn) {
-        row.push(otcBtn);
-      } else {
-        row.push(Markup.button.callback(' ', 'noop'));
-      }
+      row.push(otcButtons[i - 1] ?? Markup.button.callback(' ', 'noop'));
     }
     keyboard.push(row);
   }
@@ -354,12 +332,12 @@ bot.start(async (ctx) => {
   );
 });
 
-// Обработчик noop — просто отвечаем без действия, чтобы кнопка не вызывала ошибку
 bot.action('noop', async (ctx) => {
-  await ctx.answerCbQuery(); // просто закрываем всплывающее
+  await ctx.answerCbQuery();
 });
 
 bot.action(/pair_(.+)/, async (ctx) => {
+  if (!ctx.session) ctx.session = {};
   try {
     const pair = ctx.match[1];
     ctx.session.pair = pair;
@@ -378,6 +356,7 @@ bot.action(/pair_(.+)/, async (ctx) => {
 });
 
 bot.action(/tf_(.+)/, async (ctx) => {
+  if (!ctx.session) ctx.session = {};
   try {
     const tfValue = ctx.match[1];
     const tf = timeframes.find(t => t.value === tfValue);
@@ -399,7 +378,6 @@ bot.action(/tf_(.+)/, async (ctx) => {
     const now = Date.now();
     const msPerCandle = tf.minutes * 60 * 1000;
 
-    // Генерируем минимум 50 свечей за последние 2 дня (2880 минут / tf.minutes)
     const candlesNeeded = 50;
     const candlesFrom2Days = Math.floor((2 * 24 * 60) / tf.minutes);
     const candleCount = Math.max(candlesNeeded, candlesFrom2Days);
@@ -409,12 +387,12 @@ bot.action(/tf_(.+)/, async (ctx) => {
     const klines = generateFakeOHLCFromTime(startTime, candleCount, tf.minutes, ctx.session.pair);
     const closes = klines.map(k => k.close);
 
-    // Проверка на минимум 30 свечей
     if (klines.length < 30) {
       await ctx.reply('Недостаточно данных для анализа (меньше 30 свечей). Попробуйте другой таймфрейм.');
       return;
     }
 
+    // Здесь вставьте ваши функции расчёта индикаторов
     const sma5 = calculateSMA(closes, 5);
     const sma15 = calculateSMA(closes, 15);
     const rsi = calculateRSI(closes, 14);
