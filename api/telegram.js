@@ -32,9 +32,7 @@ function getTimeframeKeyboard() {
   ]);
 }
 
-// Генерация шаблонных ценовых данных, меняющихся в зависимости от таймфрейма
 function generateFakePriceData(timeframe) {
-  // Кол-во точек зависит от таймфрейма
   const pointsMap = {
     '1m': 50,
     '5m': 50,
@@ -44,21 +42,17 @@ function generateFakePriceData(timeframe) {
     '1d': 15,
   };
   const count = pointsMap[timeframe] || 30;
-
-  // Базовая цена случайно в районе 1.0-2.0
   let basePrice = 1 + Math.random();
 
   const data = [];
   for (let i = 0; i < count; i++) {
-    // Имитация небольших колебаний
     basePrice += (Math.random() - 0.5) * 0.02;
-    basePrice = Math.max(0.5, basePrice); // чтобы не ушло в минус
+    basePrice = Math.max(0.5, basePrice);
     data.push(parseFloat(basePrice.toFixed(4)));
   }
   return data;
 }
 
-// Вычисление простой скользящей средней (SMA)
 function calculateSMA(data, period) {
   const sma = [];
   for (let i = 0; i < data.length; i++) {
@@ -73,9 +67,7 @@ function calculateSMA(data, period) {
   return sma;
 }
 
-// Формируем текстовый анализ и рекомендацию на основе SMA
 function generateAnalysis(smaShort, smaLong) {
-  // Берём последние доступные значения
   const lastShort = smaShort.filter(v => v !== null).slice(-1)[0];
   const lastLong = smaLong.filter(v => v !== null).slice(-1)[0];
 
@@ -83,16 +75,13 @@ function generateAnalysis(smaShort, smaLong) {
     return 'Недостаточно данных для анализа.';
   }
 
-  let recommendation = '';
   if (lastShort > lastLong) {
-    recommendation = 'Тренд восходящий. Рекомендуется рассматривать покупки.';
+    return `Последние значения SMA(5): ${lastShort}\nSMA(15): ${lastLong}\nТренд восходящий. Рекомендуется рассматривать покупки.`;
   } else if (lastShort < lastLong) {
-    recommendation = 'Тренд нисходящий. Рекомендуется рассматривать продажи.';
+    return `Последние значения SMA(5): ${lastShort}\nSMA(15): ${lastLong}\nТренд нисходящий. Рекомендуется рассматривать продажи.`;
   } else {
-    recommendation = 'Тренд нейтральный. Рекомендуется подождать подтверждения.';
+    return `Последние значения SMA(5): ${lastShort}\nSMA(15): ${lastLong}\nТренд нейтральный. Рекомендуется подождать подтверждения.`;
   }
-
-  return `Последние значения SMA(5): ${lastShort}\nSMA(15): ${lastLong}\n${recommendation}`;
 }
 
 async function generateChart(prices, sma5, sma15) {
@@ -180,7 +169,6 @@ bot.action(/tf_(.+)/, async (ctx) => {
 
   await ctx.answerCbQuery();
 
-  // Генерируем данные и индикаторы
   const prices = generateFakePriceData(timeframe);
   const sma5 = calculateSMA(prices, 5);
   const sma15 = calculateSMA(prices, 15);
@@ -198,16 +186,10 @@ bot.action(/tf_(.+)/, async (ctx) => {
   userSessions.delete(ctx.from.id);
 });
 
-export default async function handler(req, res) {
-  if (req.method === 'POST') {
-    try {
-      await bot.handleUpdate(req.body);
-      res.status(200).send('OK');
-    } catch (e) {
-      console.error('Ошибка при обработке обновления:', e);
-      res.status(500).send('Ошибка сервера');
-    }
-  } else {
-    res.status(405).send('Method Not Allowed');
-  }
-}
+bot.launch().then(() => {
+  console.log('Бот запущен');
+});
+
+// graceful stop
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));
