@@ -206,7 +206,6 @@ function findSupportResistance(klines) {
 }
 
 function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances) {
-  // Очень простой пример анализа
   let text = '';
 
   const last = klines.length - 1;
