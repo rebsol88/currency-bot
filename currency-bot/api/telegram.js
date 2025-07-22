@@ -283,4 +283,18 @@ bot.on('message', (ctx) => {
 });
 
 // Экспорт webhook handler для Vercel
-export default bot.webhookCallback('/api/telegram');
+export default async function handler(req, res) {
+  console.log(`Webhook request: ${req.method} ${req.url}`);
+
+  if (req.method === 'POST') {
+    try {
+      await bot.handleUpdate(req.body, res);
+      res.status(200).send('OK');
+    } catch (error) {
+      console.error('Ошибка обработки обновления:', error);
+      res.status(500).send('Ошибка сервера');
+    }
+  } else {
+    res.status(405).send('Метод не разрешён');
+  }
+}
