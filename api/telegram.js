@@ -1,6 +1,6 @@
-import { Telegraf, Markup } from 'telegraf';
-import { SMA, RSI, Stochastic, MACD } from 'technicalindicators';
-import axios from 'axios';
+const { Telegraf, Markup } = require('telegraf');
+const axios = require('axios');
+const { SMA, RSI, Stochastic, MACD } = require('technicalindicators');
 
 if (!process.env.BOT_TOKEN) {
   console.error('Ошибка: BOT_TOKEN не задан в переменных окружения');
@@ -13,7 +13,7 @@ console.log('Бот инициализирован');
 const TIMEFRAMES = ['1m', '5m', '15m', '1h', '1d'];
 
 // Фейковая функция получения свечей (замените на реальный источник)
-async function fetchCandles(symbol: string, timeframe: string) {
+async function fetchCandles(symbol, timeframe) {
   const lengths = { '1m': 100, '5m': 50, '15m': 30, '1h': 20, '1d': 15 };
   const length = lengths[timeframe] || 50;
 
@@ -30,9 +30,9 @@ async function fetchCandles(symbol: string, timeframe: string) {
   return candles;
 }
 
-function findSupportResistance(candles: { low: number; high: number }[]) {
-  const supports: number[] = [];
-  const resistances: number[] = [];
+function findSupportResistance(candles) {
+  const supports = [];
+  const resistances = [];
 
   for (let i = 1; i < candles.length - 1; i++) {
     if (candles[i].low < candles[i - 1].low && candles[i].low < candles[i + 1].low) {
@@ -45,7 +45,7 @@ function findSupportResistance(candles: { low: number; high: number }[]) {
   return { supports, resistances };
 }
 
-function analyzeTrend(sma5: number[], sma15: number[]) {
+function analyzeTrend(sma5, sma15) {
   if (sma5.length === 0 || sma15.length === 0) return 'Тренд: недостаточно данных';
 
   const lastSMA5 = sma5[sma5.length - 1];
@@ -56,7 +56,7 @@ function analyzeTrend(sma5: number[], sma15: number[]) {
   return 'Тренд: неопределённый';
 }
 
-function analyzeIndicators(rsi: number[], stochasticK: number[], macd: { MACD: number; signal: number }[]) {
+function analyzeIndicators(rsi, stochasticK, macd) {
   if (rsi.length === 0 || stochasticK.length === 0 || macd.length === 0) {
     return 'Недостаточно данных для анализа индикаторов';
   }
@@ -82,14 +82,7 @@ function analyzeIndicators(rsi: number[], stochasticK: number[], macd: { MACD: n
   return [rsiSignal, stochasticSignal, macdSignal].join('\n');
 }
 
-function generateTradeRecommendations(
-  trend: string,
-  rsi: number[],
-  stochasticK: number[],
-  macd: { MACD: number; signal: number }[],
-  closes: number[],
-  levels: { supports: number[]; resistances: number[] }
-) {
+function generateTradeRecommendations(trend, rsi, stochasticK, macd, closes, levels) {
   if (rsi.length === 0 || stochasticK.length === 0 || macd.length === 0) {
     return 'Недостаточно данных для рекомендаций.';
   }
@@ -134,23 +127,14 @@ function generateTradeRecommendations(
   return 'Рекомендация: Тренд неопределённый, рекомендуется воздержаться от сделок.';
 }
 
-// Формируем конфигурацию Chart.js для QuickChart
-function buildChartConfig(
-  candles: { close: number }[],
-  symbol: string,
-  timeframe: string,
-  levels: { supports: number[]; resistances: number[] },
-  sma5: number[],
-  sma15: number[]
-) {
+function buildChartConfig(candles, symbol, timeframe, levels, sma5, sma15) {
   const closes = candles.map(c => c.close);
   const labels = candles.map((_, i) => i + 1);
 
-  // Дополняем SMA массивы null для выравнивания по длине
   const sma5Full = Array(closes.length - sma5.length).fill(null).concat(sma5);
   const sma15Full = Array(closes.length - sma15.length).fill(null).concat(sma15);
 
-  const datasets: any[] = [
+  const datasets = [
     {
       label: 'Цена (Close)',
       data: closes,
@@ -177,7 +161,6 @@ function buildChartConfig(
     },
   ];
 
-  // Добавляем уровни поддержки и сопротивления как линии
   levels.supports.forEach(level => {
     datasets.push({
       label: 'Поддержка',
@@ -227,25 +210,25 @@ function buildChartConfig(
   };
 }
 
-// Получаем URL с изображением графика от QuickChart
-async function getQuickChartUrl(chartConfig: any) {
+async function getQuickChartUrl(chartConfig) {
   const baseUrl = 'https://quickchart.io/chart';
 
-  // Ограничение длины URL ~8000 символов, если длинно — можно использовать POST (QuickChart поддерживает)
   const configStr = JSON.stringify(chartConfig);
   if (configStr.length < 7000) {
     const url = `${baseUrl}?c=${encodeURIComponent(configStr)}&format=png&width=800&height=400`;
     return url;
   } else {
-    // POST-запрос
     try {
-      const response = await axios.post(baseUrl, {
-        chart: chartConfig,
-        width: 800,
-        height: 400,
-        format: 'png',
-      }, { responseType: 'json' });
-      // QuickChart возвращает URL в поле 'url' при POST
+      const response = await axios.post(
+        baseUrl,
+        {
+          chart: chartConfig,
+          width: 800,
+          height: 400,
+          format: 'png',
+        },
+        { responseType: 'json' }
+      );
       return response.data.url;
     } catch (error) {
       console.error('Ошибка запроса к QuickChart POST:', error);
@@ -254,8 +237,7 @@ async function getQuickChartUrl(chartConfig: any) {
   }
 }
 
-// Формируем кнопки для выбора таймфрейма
-function buildTimeframeButtons(symbol: string, currentTf: string) {
+function buildTimeframeButtons(symbol, currentTf) {
   return Markup.inlineKeyboard(
     TIMEFRAMES.map(tf =>
       Markup.button.callback(
@@ -267,8 +249,7 @@ function buildTimeframeButtons(symbol: string, currentTf: string) {
   );
 }
 
-// Обработка команды /analyze
-bot.command('analyze', async (ctx) => {
+bot.command('analyze', async ctx => {
   try {
     const args = ctx.message?.text?.trim().split(/\s+/) || [];
     const symbol = (args[1] || 'BTCUSDT').toUpperCase();
@@ -285,15 +266,14 @@ bot.command('analyze', async (ctx) => {
   }
 });
 
-// Обработка нажатия кнопок таймфрейма
-bot.action(/analyze_(.+)_(.+)/, async (ctx) => {
+bot.action(/analyze_(.+)_(.+)/, async ctx => {
   try {
     const [, symbol, timeframe] = ctx.match;
     if (!TIMEFRAMES.includes(timeframe)) {
       return ctx.answerCbQuery('Неверный таймфрейм');
     }
 
-    await ctx.answerCbQuery(); // закрыть "крутилку"
+    await ctx.answerCbQuery();
     await processAnalyze(ctx, symbol.toUpperCase(), timeframe);
   } catch (error) {
     console.error('Ошибка в обработке кнопки:', error);
@@ -301,7 +281,7 @@ bot.action(/analyze_(.+)_(.+)/, async (ctx) => {
   }
 });
 
-async function processAnalyze(ctx: any, symbol: string, timeframe: string) {
+async function processAnalyze(ctx, symbol, timeframe) {
   const candles = await fetchCandles(symbol, timeframe);
   if (!candles || candles.length === 0) {
     return ctx.reply('Не удалось получить данные по свечам.');
@@ -339,7 +319,8 @@ async function processAnalyze(ctx: any, symbol: string, timeframe: string) {
   const indicatorsAnalysis = analyzeIndicators(rsi, stochasticK, macd);
   const recommendation = generateTradeRecommendations(trend, rsi, stochasticK, macd, closes, levels);
 
-  const analysisText = `${trend}\n\n${indicatorsAnalysis}\n\n` +
+  const analysisText =
+    `${trend}\n\n${indicatorsAnalysis}\n\n` +
     `Поддержка: ${levels.supports.length ? levels.supports.map(l => l.toFixed(2)).join(', ') : 'нет'}\n` +
     `Сопротивление: ${levels.resistances.length ? levels.resistances.map(l => l.toFixed(2)).join(', ') : 'нет'}\n\n` +
     `${recommendation}`;
@@ -348,7 +329,6 @@ async function processAnalyze(ctx: any, symbol: string, timeframe: string) {
   const chartUrl = await getQuickChartUrl(chartConfig);
 
   if (ctx.updateType === 'callback_query') {
-    // Если вызвано из кнопки — редактируем сообщение
     await ctx.editMessageMedia(
       {
         type: 'photo',
@@ -361,20 +341,15 @@ async function processAnalyze(ctx: any, symbol: string, timeframe: string) {
       }
     );
   } else {
-    // Новое сообщение
-    await ctx.replyWithPhoto(
-      chartUrl,
-      {
-        caption: analysisText,
-        parse_mode: 'HTML',
-        ...buildTimeframeButtons(symbol, timeframe),
-      }
-    );
+    await ctx.replyWithPhoto(chartUrl, {
+      caption: analysisText,
+      parse_mode: 'HTML',
+      ...buildTimeframeButtons(symbol, timeframe),
+    });
   }
 }
 
 bot.launch().then(() => console.log('Бот запущен'));
 
-// graceful stop
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
