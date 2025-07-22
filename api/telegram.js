@@ -1,11 +1,3 @@
-/**
- * Telegram-бот на Telegraf с выбором пары и таймфрейма,
- * генерацией шаблонных OHLC данных (16 валютных + 16 OTC),
- * построением графика с SMA(5,15), RSI, MACD, Стохастиком,
- * линиями поддержки и сопротивления,
- * и подробным текстовым анализом с рекомендациями.
- */
-
 import { Telegraf, Markup, session } from 'telegraf';
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
 import annotationPlugin from 'chartjs-plugin-annotation';
@@ -464,58 +456,80 @@ bot.start(async (ctx) => {
 });
 
 bot.action(/pair_(.+)/, async (ctx) => {
-  const pair = ctx.match[1];
-  ctx.session.pair = pair;
-  await ctx.answerCbQuery();
-  await ctx.editMessageText(
-    `Вы выбрали валютную пару: ${pair}\nТеперь выберите таймфрейм:`,
-    Markup.inlineKeyboard(
-      timeframes.map(tf => Markup.button.callback(tf.label, `tf_${tf.value}`)),
-      { columns: 3 }
-    )
-  );
+  try {
+    const pair = ctx.match[1];
+    ctx.session.pair = pair;
+    await ctx.answerCbQuery();
+    await ctx.editMessageText(
+      `Вы выбрали валютную пару: ${pair}\nТеперь выберите таймфрейм:`,
+      Markup.inlineKeyboard(
+        timeframes.map(tf => Markup.button.callback(tf.label, `tf_${tf.value}`)),
+        { columns: 3 }
+      )
+    );
+  } catch (error) {
+    console.error('Ошибка в обработчике выбора пары:', error);
+    await ctx.reply('Произошла ошибка, попробуйте ещё раз.');
+  }
 });
 
 bot.action(/tf_(.+)/, async (ctx) => {
-  const tfValue = ctx.match[1];
-  const tf = timeframes.find(t => t.value === tfValue);
-  if (!tf) {
-    await ctx.answerCbQuery('Неверный таймфрейм', { show_alert: true });
-    return;
+  try {
+    const tfValue = ctx.match[1];
+    const tf = timeframes.find(t => t.value === tfValue);
+    if (!tf) {
+      await ctx.answerCbQuery('Неверный таймфрейм', { show_alert: true });
+      return;
+    }
+
+    if (!ctx.session.pair) {
+      await ctx.answerCbQuery('Сначала выберите валютную пару', { show_alert: true });
+      return;
+    }
+
+    ctx.session.timeframe = tf;
+
+    await ctx.answerCbQuery();
+    await ctx.editMessageText(`Генерирую данные для пары ${ctx.session.pair} и таймфрейма ${tf.label}...`);
+
+    const now = Date.now();
+    const startOfDay = new Date();
+    startOfDay.setUTCHours(0, 0, 0, 0);
+    const msSinceStart = now - startOfDay.getTime();
+    const candleCount = Math.floor(msSinceStart / (tf.minutes * 60 * 1000));
+
+    if (candleCount < 30) {
+      await ctx.reply('Недостаточно данных за текущую сессию для выбранного таймфрейма (минимум 30 свечей).');
+      return;
+    }
+
+    console.log(`Генерирую ${candleCount} свечей для пары ${ctx.session.pair} с таймфреймом ${tf.value}`);
+
+    const klines = generateFakeOHLC(candleCount, tf.minutes, ctx.session.pair);
+    const closes = klines.map(k => k.close);
+
+    const sma5 = calculateSMA(closes, 5);
+    const sma15 = calculateSMA(closes, 15);
+    const rsi = calculateRSI(closes, 14);
+    const macd = calculateMACD(closes, 12, 26, 9);
+    const stochastic = calculateStochastic(klines, 14, 3);
+    const { supports, resistances } = findSupportResistance(klines);
+
+    console.log('Начинаю генерацию графика...');
+    const chartBuffer = await drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances);
+    console.log('График сгенерирован, отправляю фото...');
+
+    const analysisText = analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances);
+
+    await ctx.replyWithPhoto({ source: chartBuffer }, {
+      caption: `Валютная пара: ${ctx.session.pair}\nТаймфрейм: ${tf.label}\n\nАнализ и рекомендации:\n${analysisText}`
+    });
+
+    await ctx.reply('Для нового запроса используйте /start');
+  } catch (error) {
+    console.error('Ошибка в обработчике таймфрейма:', error);
+    await ctx.reply('Произошла ошибка при генерации данных, попробуйте ещё раз.');
   }
-  ctx.session.timeframe = tf;
-
-  await ctx.answerCbQuery();
-  await ctx.editMessageText(`Генерирую данные для пары ${ctx.session.pair} и таймфрейма ${tf.label}...`);
-
-  const now = Date.now();
-  const startOfDay = new Date();
-  startOfDay.setUTCHours(0, 0, 0, 0);
-  const msSinceStart = now - startOfDay.getTime();
-  const candleCount = Math.floor(msSinceStart / (tf.minutes * 60 * 1000));
-  if (candleCount < 30) {
-    await ctx.reply('Недостаточно данных за текущую сессию для выбранного таймфрейма (минимум 30 свечей).');
-    return;
-  }
-
-  const klines = generateFakeOHLC(candleCount, tf.minutes, ctx.session.pair);
-  const closes = klines.map(k => k.close);
-
-  const sma5 = calculateSMA(closes, 5);
-  const sma15 = calculateSMA(closes, 15);
-  const rsi = calculateRSI(closes, 14);
-  const macd = calculateMACD(closes, 12, 26, 9);
-  const stochastic = calculateStochastic(klines, 14, 3);
-  const { supports, resistances } = findSupportResistance(klines);
-
-  const chartBuffer = await drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances);
-  const analysisText = analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances);
-
-  await ctx.replyWithPhoto({ source: chartBuffer }, {
-    caption: `Валютная пара: ${ctx.session.pair}\nТаймфрейм: ${tf.label}\n\nАнализ и рекомендации:\n${analysisText}`
-  });
-
-  await ctx.reply('Для нового запроса используйте /start');
 });
 
 bot.launch().then(() => {
