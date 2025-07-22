@@ -282,7 +282,7 @@ bot.on('message', (ctx) => {
   console.log('Получено сообщение:', ctx.message.text);
 });
 
-// Экспорт webhook handler для Vercel
+// Экспорт webhook handler для Vercel — файл должен лежать в /api/telegram.js
 export default async function handler(req, res) {
   console.log(`Webhook request: ${req.method} ${req.url}`);
 
