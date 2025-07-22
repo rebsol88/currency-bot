@@ -2,8 +2,16 @@ import { Telegraf } from 'telegraf';
 import { SMA, RSI, Stochastic, MACD } from 'technicalindicators';
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
 
-// Инициализация бота с токеном из переменной окружения
+if (!process.env.BOT_TOKEN) {
+  console.error('Ошибка: BOT_TOKEN не задан в переменных окружения');
+  // Можно выбросить ошибку или завершить процесс
+  // throw new Error('BOT_TOKEN is required');
+}
+
 const bot = new Telegraf(process.env.BOT_TOKEN);
+console.log('Бот инициализирован');
+
+console.log('Webhook handler загружен');
 
 // Фейковая функция получения свечей (замените на реальный источник)
 async function fetchCandles(symbol, timeframe) {
@@ -209,6 +217,8 @@ async function generateChartImage(candles, symbol, timeframe, levels, sma5, sma1
 // Обработка команды /analyze
 bot.command('analyze', async (ctx) => {
   try {
+    console.log('Получена команда /analyze от', ctx.from.username || ctx.from.id);
+
     const args = ctx.message?.text?.split(' ') || [];
     const symbol = args[1] ? args[1].toUpperCase() : 'BTCUSDT';
     const timeframe = args[2] ? args[2].toLowerCase() : '1m';
@@ -262,9 +272,14 @@ bot.command('analyze', async (ctx) => {
       { caption: analysisText }
     );
   } catch (error) {
-    console.error(error);
+    console.error('Ошибка в /analyze:', error);
     await ctx.reply('Ошибка при анализе данных.');
   }
+});
+
+// Опционально: логировать все сообщения (для отладки)
+bot.on('message', (ctx) => {
+  console.log('Получено сообщение:', ctx.message.text);
 });
 
 // Экспорт webhook handler для Vercel
