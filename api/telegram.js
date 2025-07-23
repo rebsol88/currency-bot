@@ -16,6 +16,12 @@ bot.use((ctx, next) => {
   return next();
 });
 
+// Логируем все входящие сообщения (для отладки)
+bot.on('message', (ctx, next) => {
+  console.log(`Получено сообщение от ${ctx.from.id}: ${ctx.message.text || '[не текстовое сообщение]'}`);
+  return next();
+});
+
 // Инициализация chartJSNodeCanvas с регистрацией плагина annotation
 const width = 800;
 const height = 600;
@@ -131,11 +137,11 @@ bot.action(/lang_(.+)/, async (ctx) => {
 
   await ctx.answerCbQuery();
 
-  const prompt = isAdmin(ctx)
-    ? (languages[lang].texts.key_accepted)
+  const prompt = ctx.session.authorized
+    ? languages[lang].texts.key_accepted
     : languages[lang].texts.enter_key;
 
-  if (isAdmin(ctx)) {
+  if (ctx.session.authorized) {
     await sendPairSelection(ctx, lang);
   } else {
     await ctx.editMessageText(prompt);
