@@ -141,7 +141,6 @@ function chunkArray(arr, size) {
 function generateFakeOHLCFromTime(startTime, count, intervalMinutes, pair) {
   const klines = [];
   let time = startTime;
-  // Начальная цена в зависимости от пары (пример)
   let basePrice = 1.0;
   if (pair === 'EURUSD') basePrice = 1.1;
   else if (pair === 'USDJPY') basePrice = 140;
@@ -209,9 +208,7 @@ function calculateRSI(data, period) {
   return rsi;
 }
 
-// Заглушки для остальных индикаторов — добавьте свои реализации при необходимости
 function calculateMACD(data) {
-  // Заглушка: возвращаем пустой объект с macd, signal, histogram
   return { macd: [], signal: [], histogram: [] };
 }
 function calculateStochastic(data) {
@@ -221,7 +218,6 @@ function findSupportResistance(data) {
   return { supports: [], resistances: [] };
 }
 function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances, lang) {
-  // Пример простого анализа
   return lang === 'ru'
     ? 'Анализ завершён. (Здесь можно добавить подробный анализ)'
     : 'Analysis completed. (Detailed analysis can be added here)';
@@ -230,9 +226,6 @@ function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports,
 // --- Генерация графика ---
 async function generateChartImage(klines, sma5, sma15, supports, resistances, pair, tfLabel) {
   const labels = klines.map((k) => new Date(k.openTime).toLocaleString());
-  const open = klines.map((k) => k.open);
-  const high = klines.map((k) => k.high);
-  const low = klines.map((k) => k.low);
   const close = klines.map((k) => k.close);
 
   const datasets = [
