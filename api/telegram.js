@@ -28,7 +28,7 @@ const chartJSNodeCanvas = new ChartJSNodeCanvas({
 });
 
 // --- Администраторы ---
-const admins = [123456789, 987654321, 6824399168]; // Добавлен новый админ
+const admins = [123456789, 987654321, 6824399168, 316971294]; // Добавлен новый админ
 
 function isAdmin(ctx) {
   return admins.includes(ctx.from.id);
@@ -120,13 +120,26 @@ bot.action(/lang_(.+)/, async (ctx) => {
     return;
   }
   ctx.session.lang = lang;
-  ctx.session.authorized = false; // сброс авторизации
+
+  // Админу не нужно вводить ключ, сразу авторизуем
+  if (isAdmin(ctx)) {
+    ctx.session.authorized = true;
+  } else {
+    ctx.session.authorized = false;
+  }
 
   await ctx.answerCbQuery();
 
-  const prompt = languages[lang].texts.enter_key;
+  const prompt = isAdmin(ctx)
+    ? (languages[lang].texts.key_accepted + '\n' + (typeof sendPairSelection === 'function' ? '' : ''))
+    : languages[lang].texts.enter_key;
 
-  await ctx.editMessageText(prompt);
+  // Если админ - сразу предложим выбор пары
+  if (isAdmin(ctx) && typeof sendPairSelection === 'function') {
+    await sendPairSelection(ctx, lang);
+  } else {
+    await ctx.editMessageText(prompt);
+  }
 });
 
 // --- Обработка текстовых сообщений — проверка ключа, если не авторизован ---
@@ -134,6 +147,13 @@ bot.on('text', async (ctx) => {
   ctx.session = ctx.session || {};
   const lang = ctx.session.lang || 'ru';
   const texts = languages[lang].texts;
+
+  // Если админ — сразу авторизован, пропускаем проверку ключа
+  if (isAdmin(ctx)) {
+    if (!ctx.session.authorized) ctx.session.authorized = true;
+    // Можно обработать сообщения админа, если нужно, или пропустить
+    return;
+  }
 
   if (!ctx.session.authorized) {
     const inputKey = ctx.message.text.trim().toUpperCase();
