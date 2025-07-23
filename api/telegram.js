@@ -149,13 +149,24 @@ function calculateEMA(data, period) {
 function calculateMACD(data, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9) {
   const emaFast = calculateEMA(data, fastPeriod);
   const emaSlow = calculateEMA(data, slowPeriod);
-  const macdLine = emaFast.map((val, idx) => val - emaSlow[idx]);
-  const signalLine = calculateEMA(macdLine.slice(slowPeriod - 1), signalPeriod);
-  const signalLineFull = Array(slowPeriod - 1 + signalPeriod - 1).fill(null).concat(signalLine);
-  const histogram = macdLine.map((val, idx) =>
-    (val !== null && signalLineFull[idx] !== null) ? val - signalLineFull[idx] : null
-  );
-  return { macdLine, signalLine: signalLineFull, histogram };
+  const macdLine = emaFast.map((val, idx) => {
+    if (val == null || emaSlow[idx] == null) return null;
+    return val - emaSlow[idx];
+  });
+
+  // Сигнальная линия считается от macdLine, начиная с slowPeriod - 1
+  // Для упрощения выравниваем длины
+  const macdLineForSignal = macdLine.slice(slowPeriod - 1).filter(v => v !== null);
+  const signalLinePart = calculateEMA(macdLineForSignal, signalPeriod);
+  // Заполняем null в начале
+  const signalLine = Array(slowPeriod - 1 + signalPeriod - 1).fill(null).concat(signalLinePart);
+
+  const histogram = macdLine.map((val, idx) => {
+    if (val === null || signalLine[idx] === null) return null;
+    return val - signalLine[idx];
+  });
+
+  return { macdLine, signalLine, histogram };
 }
 
 function calculateStochastic(klines, kPeriod = 14, dPeriod = 3) {
@@ -171,7 +182,7 @@ function calculateStochastic(klines, kPeriod = 14, dPeriod = 3) {
     const lowMin = Math.min(...slice.map(c => c.low));
     const highMax = Math.max(...slice.map(c => c.high));
     const close = klines[i].close;
-    const k = ((close - lowMin) / (highMax - lowMin)) * 100;
+    const k = (highMax - lowMin) === 0 ? 0 : ((close - lowMin) / (highMax - lowMin)) * 100;
     kValues.push(k);
   }
 
@@ -216,6 +227,7 @@ function detectCandlePattern(candle) {
   const { open, close, high, low } = candle;
   const body = Math.abs(close - open);
   const candleRange = high - low;
+  if (candleRange === 0) return null; // Защита от деления на 0
   const upperShadow = high - Math.max(open, close);
   const lowerShadow = Math.min(open, close) - low;
 
@@ -258,15 +270,16 @@ function detectRSIDivergence(prevPrice, prevRSI, currPrice, currRSI) {
 }
 
 // Проверка пробоя уровня с ретестом (по последним 3 ценам)
+// prices - массив последних 3 цен [curr, prev, prev2]
 function checkBreakoutWithRetest(prices, level, isSupport) {
   if (prices.length < 3) return false;
   const [curr, prev, prev2] = prices;
 
   if (isSupport) {
-    // Пробой поддержки вниз с ретестом сверху
+    // Пробой поддержки вниз с ретестом сверху: prev2 > level, prev < level, curr > level
     return prev2 > level && prev < level && curr > level;
   } else {
-    // Пробой сопротивления вверх с ретестом снизу
+    // Пробой сопротивления вверх с ретестом снизу: prev2 < level, prev > level, curr < level
     return prev2 < level && prev > level && curr < level;
   }
 }
@@ -449,12 +462,8 @@ function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports,
   return text;
 }
 
-// --- Функция отрисовки графика ---
-// (оставляем без изменений, можно добавить позже)
-
 // --- Telegram Bot ---
 
-// Хранение истории по парам и таймфреймам
 const historyData = {}; // { 'EURUSD_1m': [klines...] }
 
 bot.start((ctx) => {
