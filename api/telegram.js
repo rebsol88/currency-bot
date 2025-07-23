@@ -107,85 +107,97 @@ const languages = {
 
 // --- Обработчик команды /start ---
 bot.start(async (ctx) => {
-  ctx.session = ctx.session || {};
-  ctx.session.authorized = false;
-  ctx.session.lang = null;
+  try {
+    ctx.session = ctx.session || {};
+    ctx.session.authorized = false;
+    ctx.session.lang = null;
 
-  const chooseLangText = languages.ru.texts.choose_lang;
+    const chooseLangText = languages.ru.texts.choose_lang;
 
-  await ctx.reply(chooseLangText, Markup.inlineKeyboard([
-    Markup.button.callback('Русский 🇷🇺', 'lang_ru'),
-    Markup.button.callback('English 🇺🇸', 'lang_en'),
-  ]));
+    await ctx.reply(chooseLangText, Markup.inlineKeyboard([
+      Markup.button.callback('Русский 🇷🇺', 'lang_ru'),
+      Markup.button.callback('English 🇺🇸', 'lang_en'),
+    ]));
+  } catch (error) {
+    console.error('Ошибка в /start:', error);
+  }
 });
 
 // --- Обработка выбора языка ---
 bot.action(/lang_(.+)/, async (ctx) => {
-  ctx.session = ctx.session || {};
-  const lang = ctx.match[1];
-  if (!languages[lang]) {
-    await ctx.answerCbQuery('Unsupported language');
-    return;
-  }
-  ctx.session.lang = lang;
+  try {
+    ctx.session = ctx.session || {};
+    const lang = ctx.match[1];
+    if (!languages[lang]) {
+      await ctx.answerCbQuery('Unsupported language');
+      return;
+    }
+    ctx.session.lang = lang;
 
-  if (isAdmin(ctx)) {
-    ctx.session.authorized = true;
-  } else {
-    ctx.session.authorized = false;
-  }
+    if (isAdmin(ctx)) {
+      ctx.session.authorized = true;
+    } else {
+      ctx.session.authorized = false;
+    }
 
-  await ctx.answerCbQuery();
+    await ctx.answerCbQuery();
 
-  const prompt = ctx.session.authorized
-    ? languages[lang].texts.key_accepted
-    : languages[lang].texts.enter_key;
+    const prompt = ctx.session.authorized
+      ? languages[lang].texts.key_accepted
+      : languages[lang].texts.enter_key;
 
-  if (ctx.session.authorized) {
-    await sendPairSelection(ctx, lang);
-  } else {
-    await ctx.editMessageText(prompt);
+    if (ctx.session.authorized) {
+      await sendPairSelection(ctx, lang);
+    } else {
+      await ctx.editMessageText(prompt);
+    }
+  } catch (error) {
+    console.error('Ошибка в выборе языка:', error);
   }
 });
 
 // --- Обработка текстовых сообщений — проверка ключа, если не авторизован ---
 bot.on('text', async (ctx) => {
-  ctx.session = ctx.session || {};
-  const lang = ctx.session.lang || 'ru';
-  const texts = languages[lang].texts;
+  try {
+    ctx.session = ctx.session || {};
+    const lang = ctx.session.lang || 'ru';
+    const texts = languages[lang].texts;
 
-  if (isAdmin(ctx)) {
-    if (!ctx.session.authorized) ctx.session.authorized = true;
-    return;
-  }
-
-  if (!ctx.session.authorized) {
-    const inputKey = ctx.message.text.trim().toUpperCase();
-
-    if (licenseKeys[inputKey] && !licenseKeys[inputKey].used) {
-      licenseKeys[inputKey].used = true;
-      licenseKeys[inputKey].userId = ctx.from.id;
-      ctx.session.authorized = true;
-
-      await ctx.reply(texts.key_accepted);
-
-      if (typeof sendPairSelection === 'function') {
-        await sendPairSelection(ctx, lang);
-      }
-    } else if (licenseKeys[inputKey] && licenseKeys[inputKey].userId === ctx.from.id) {
-      ctx.session.authorized = true;
-      await ctx.reply(texts.key_already_used);
-
-      if (typeof sendPairSelection === 'function') {
-        await sendPairSelection(ctx, lang);
-      }
-    } else {
-      await ctx.reply(texts.key_invalid);
+    if (isAdmin(ctx)) {
+      if (!ctx.session.authorized) ctx.session.authorized = true;
+      return;
     }
-    return;
-  }
 
-  await ctx.reply(texts.use_buttons);
+    if (!ctx.session.authorized) {
+      const inputKey = ctx.message.text.trim().toUpperCase();
+
+      if (licenseKeys[inputKey] && !licenseKeys[inputKey].used) {
+        licenseKeys[inputKey].used = true;
+        licenseKeys[inputKey].userId = ctx.from.id;
+        ctx.session.authorized = true;
+
+        await ctx.reply(texts.key_accepted);
+
+        if (typeof sendPairSelection === 'function') {
+          await sendPairSelection(ctx, lang);
+        }
+      } else if (licenseKeys[inputKey] && licenseKeys[inputKey].userId === ctx.from.id) {
+        ctx.session.authorized = true;
+        await ctx.reply(texts.key_already_used);
+
+        if (typeof sendPairSelection === 'function') {
+          await sendPairSelection(ctx, lang);
+        }
+      } else {
+        await ctx.reply(texts.key_invalid);
+      }
+      return;
+    }
+
+    await ctx.reply(texts.use_buttons);
+  } catch (error) {
+    console.error('Ошибка в обработчике текста:', error);
+  }
 });
 
 // --- Команды администратора ---
@@ -309,6 +321,11 @@ async function sendPairSelection(ctx, lang) {
   ]);
   await ctx.reply(text, buttons);
 }
+
+// --- Глобальный обработчик ошибок ---
+bot.catch((err, ctx) => {
+  console.error(`Глобальная ошибка для ${ctx.updateType}:`, err);
+});
 
 // --- Запуск бота ---
 bot.launch();
