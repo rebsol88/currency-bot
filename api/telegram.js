@@ -510,5 +510,3 @@ bot.hears(timeframes.map(tf => tf.label), (ctx) => {
 // Запуск бота
 bot.launch();
 console.log('Бот запущен и готов к работе');
-
-Найти еще
