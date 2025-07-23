@@ -236,15 +236,17 @@ bot.command('listkeys', async (ctx) => {
     return;
   }
 
-  if (Object.keys(licenseKeys).length === 0) {
+  const keys = Object.entries(licenseKeys);
+  if (keys.length === 0) {
     await ctx.reply(texts.no_keys);
     return;
   }
 
   let message = texts.keys_list_header;
-  for (const [key, info] of Object.entries(licenseKeys)) {
+  for (const [key, info] of keys) {
     message += texts.keys_list_item(key, info) + '\n';
   }
+  message += `\nВсего ключей: ${keys.length}`;
 
   await ctx.reply(message);
 });
