@@ -191,98 +191,113 @@ bot.on('text', async (ctx) => {
 // --- Команды администратора ---
 
 bot.command('genkey', async (ctx) => {
-  ctx.session = ctx.session || {};
-  const lang = ctx.session.lang || 'ru';
-  const texts = languages[lang].texts;
+  try {
+    ctx.session = ctx.session || {};
+    const lang = ctx.session.lang || 'ru';
+    const texts = languages[lang].texts;
 
-  console.log(`/genkey вызван пользователем ${ctx.from.id}`);
+    console.log(`/genkey вызван пользователем ${ctx.from.id}`);
 
-  if (!isAdmin(ctx)) {
-    await ctx.reply(texts.access_denied);
-    return;
-  }
-
-  const args = ctx.message.text.split(' ').slice(1);
-  let count = 1;
-  if (args.length > 0) {
-    const parsed = parseInt(args[0], 10);
-    if (!isNaN(parsed) && parsed > 0 && parsed <= 20) {
-      count = parsed;
-    } else {
-      await ctx.reply(texts.specify_count);
+    if (!isAdmin(ctx)) {
+      await ctx.reply(texts.access_denied);
       return;
     }
+
+    const args = ctx.message.text.split(' ').slice(1);
+    let count = 1;
+    if (args.length > 0) {
+      const parsed = parseInt(args[0], 10);
+      if (!isNaN(parsed) && parsed > 0 && parsed <= 20) {
+        count = parsed;
+      } else {
+        await ctx.reply(texts.specify_count);
+        return;
+      }
+    }
+
+    const newKeys = [];
+    for (let i = 0; i < count; i++) {
+      let key;
+      do {
+        key = generateLicenseKey();
+      } while (licenseKeys[key]);
+
+      licenseKeys[key] = { used: false, userId: null };
+      newKeys.push(key);
+    }
+
+    console.log('Сгенерированы ключи:', newKeys);
+
+    await ctx.reply(texts.keys_generated(newKeys));
+  } catch (error) {
+    console.error('Ошибка в /genkey:', error);
+    await ctx.reply('Произошла ошибка при генерации ключей.');
   }
-
-  const newKeys = [];
-  for (let i = 0; i < count; i++) {
-    let key;
-    do {
-      key = generateLicenseKey();
-    } while (licenseKeys[key]);
-
-    licenseKeys[key] = { used: false, userId: null };
-    newKeys.push(key);
-  }
-
-  console.log('Сгенерированы ключи:', newKeys);
-
-  await ctx.reply(texts.keys_generated(newKeys));
 });
 
 bot.command('listkeys', async (ctx) => {
-  ctx.session = ctx.session || {};
-  const lang = ctx.session.lang || 'ru';
-  const texts = languages[lang].texts;
+  try {
+    ctx.session = ctx.session || {};
+    const lang = ctx.session.lang || 'ru';
+    const texts = languages[lang].texts;
 
-  console.log(`/listkeys вызван пользователем ${ctx.from.id}`);
+    console.log(`/listkeys вызван пользователем ${ctx.from.id}`);
 
-  if (!isAdmin(ctx)) {
-    await ctx.reply(texts.access_denied);
-    return;
+    if (!isAdmin(ctx)) {
+      await ctx.reply(texts.access_denied);
+      return;
+    }
+
+    const keys = Object.entries(licenseKeys);
+    if (keys.length === 0) {
+      await ctx.reply(texts.no_keys);
+      return;
+    }
+
+    let message = texts.keys_list_header;
+    for (const [key, info] of keys) {
+      message += texts.keys_list_item(key, info) + '\n';
+    }
+    message += `\nВсего ключей: ${keys.length}`;
+
+    await ctx.reply(message);
+  } catch (error) {
+    console.error('Ошибка в /listkeys:', error);
+    await ctx.reply('Произошла ошибка при выводе ключей.');
   }
-
-  const keys = Object.entries(licenseKeys);
-  if (keys.length === 0) {
-    await ctx.reply(texts.no_keys);
-    return;
-  }
-
-  let message = texts.keys_list_header;
-  for (const [key, info] of keys) {
-    message += texts.keys_list_item(key, info) + '\n';
-  }
-  message += `\nВсего ключей: ${keys.length}`;
-
-  await ctx.reply(message);
 });
 
 bot.command('delkey', async (ctx) => {
-  ctx.session = ctx.session || {};
-  const lang = ctx.session.lang || 'ru';
-  const texts = languages[lang].texts;
+  try {
+    ctx.session = ctx.session || {};
+    const lang = ctx.session.lang || 'ru';
+    const texts = languages[lang].texts;
 
-  console.log(`/delkey вызван пользователем ${ctx.from.id}`);
+    console.log(`/delkey вызван пользователем ${ctx.from.id}`);
 
-  if (!isAdmin(ctx)) {
-    await ctx.reply(texts.access_denied);
-    return;
+    if (!isAdmin(ctx)) {
+      await ctx.reply(texts.access_denied);
+      return;
+    }
+
+    const args = ctx.message.text.split(' ').slice(1);
+    if (args.length === 0) {
+      await ctx.reply(texts.specify_key_del);
+      return;
+    }
+
+    const key = args[0].toUpperCase();
+    if (!licenseKeys[key]) {
+      await ctx.reply(texts.key_not_found);
+      return;
+    }
+
+    delete licenseKeys[key];
+    await ctx.reply(texts.key_deleted(key));
+  } catch (error) {
+    console.error('Ошибка в /delkey:', error);
+    await ctx.reply('Произошла ошибка при удалении ключа.');
   }
-
-  const args = ctx.message.text.split(' ').slice(1);
-  if (args.length === 0) {
-    await ctx.reply(texts.specify_key_del);
-    return;
-  }
-
-  const key = args[0].toUpperCase();
-  if (!licenseKeys[key]) {
-    await ctx.reply(texts.key_not_found);
-    return;
-  }
-
-  delete licenseKeys[key];
-  await ctx.reply(texts.key_deleted(key));
 });
 
 // --- Заглушка для sendPairSelection ---
