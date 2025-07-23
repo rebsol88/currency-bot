@@ -2,13 +2,17 @@ import { Telegraf, Markup, session } from 'telegraf';
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
 import Chart from 'chart.js/auto/auto.js';
 import annotationPlugin from 'chartjs-plugin-annotation';
+import WebSocket from 'ws';
+
+// --- Ваши данные из cookie ---
+const USER_ID = '1753190874868-5xtss07znnm';  // lo_uid
+const USER_SECRET = 'AKP9s_XjNuXtkInDX';      // SSID
 
 // --- Настройки ---
 const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
 const bot = new Telegraf(BOT_TOKEN);
 bot.use(session());
 
-// Инициализация chartJSNodeCanvas с регистрацией плагина annotation
 const width = 800;
 const height = 600;
 const chartJSNodeCanvas = new ChartJSNodeCanvas({
@@ -19,115 +23,145 @@ const chartJSNodeCanvas = new ChartJSNodeCanvas({
   },
 });
 
-// Ваши языки, пары, отображения и индикаторы без изменений...
+// ... (ваши функции и данные для языков, индикаторов и т.п. — оставляем без изменений)
 
-// --- Новое ---
-// Данные для подключения к WebSocket (взято из AppData)
-const WS_SERVERS = [
-  'wss://api-msk.po.market',
-  'wss://api-spb.po.market',
-  'wss://api-eu.po.market',
-  'wss://api-us-south.po.market',
-  'wss://api-us-north.po.market',
-];
+// --- Новый блок: Pocket Option WebSocket клиент ---
 
-// Ваш uid и userSecret из CountersServiceApp
-const USER_ID = 91717690;
-const USER_SECRET = 'eea7f7588a9a0d84b68e0010a0026544';
+class PocketOptionWS {
+  constructor(userId, userSecret) {
+    this.userId = userId;
+    this.userSecret = userSecret;
+    this.ws = null;
+    this.requestId = 1;
+    this.subscriptions = new Map();
+  }
 
-// Хранилище котировок: { 'EURUSD_1m': [klines...] }
-const historyData = {};
+  connect() {
+    return new Promise((resolve, reject) => {
+      this.ws = new WebSocket('wss://socket.pocketoption.com/socket.io/?EIO=3&transport=websocket');
 
-// WebSocket подключение и подписка
-let ws;
-let wsConnected = false;
-let wsQueue = []; // очередь запросов, если WS не готов
+      this.ws.on('open', () => {
+        // Отправляем handshake (Socket.IO protocol)
+        this.ws.send('40'); // "40" - open connection with namespace "/"
 
-function connectWebSocket() {
-  // Выбираем сервер (например, первый)
-  const url = WS_SERVERS[0];
-  ws = new WebSocket(url);
+        // Авторизация
+        const authMsg = JSON.stringify({
+          userId: this.userId,
+          userSecret: this.userSecret,
+          name: 'api',
+          version: 1,
+        });
+        // Отправляем событие auth (Socket.IO event format)
+        this.ws.send(`42["auth",${authMsg}]`);
+      });
 
-  ws.onopen = () => {
-    console.log('WebSocket connected:', url);
-    wsConnected = true;
+      this.ws.on('message', (data) => {
+        const str = data.toString();
 
-    // Отправляем аутентификацию
-    ws.send(JSON.stringify({
-      action: 'auth',
-      userId: USER_ID,
-      token: USER_SECRET,
-    }));
+        // Обработка ответа на auth
+        if (str.startsWith('42')) {
+          try {
+            const payload = JSON.parse(str.slice(2));
+            const [event, content] = payload;
+            if (event === 'auth') {
+              if (content.success) {
+                resolve(true);
+              } else {
+                reject(new Error('Authentication failed'));
+              }
+            }
+            // Обработка подписок
+            if (event === 'candles') {
+              const { symbol, timeframe, candles } = content;
+              const key = `${symbol}_${timeframe}`;
+              if (this.subscriptions.has(key)) {
+                this.subscriptions.get(key)(candles);
+              }
+            }
+          } catch (e) {
+            // Игнорируем ошибки парсинга
+          }
+        }
+      });
 
-    // Обрабатываем очередь подписок
-    while (wsQueue.length > 0) {
-      const msg = wsQueue.shift();
-      ws.send(JSON.stringify(msg));
-    }
-  };
+      this.ws.on('error', (err) => reject(err));
+      this.ws.on('close', () => console.log('WebSocket closed'));
+    });
+  }
 
-  ws.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-      // Обработка входящих данных с котировками
-      if (data.type === 'ohlc') {
-        // Пример формата: { type: 'ohlc', pair: 'EURUSD', timeframe: '1m', klines: [...] }
-        const key = `${data.pair}_${data.timeframe}`;
-        historyData[key] = data.klines;
+  subscribeCandles(symbol, timeframe, callback) {
+    const key = `${symbol}_${timeframe}`;
+    this.subscriptions.set(key, callback);
+
+    // Отправляем запрос на подписку (Socket.IO event)
+    const msg = JSON.stringify({ symbol, timeframe });
+    this.ws.send(`42["candles.subscribe",${msg}]`);
+  }
+
+  close() {
+    if (this.ws) this.ws.close();
+  }
+}
+
+// --- Функция для получения свечей через WebSocket ---
+
+async function getCandles(symbol, timeframe) {
+  const wsClient = new PocketOptionWS(USER_ID, USER_SECRET);
+  await wsClient.connect();
+
+  return new Promise((resolve, reject) => {
+    let received = false;
+    const timeout = setTimeout(() => {
+      if (!received) {
+        wsClient.close();
+        reject(new Error('Timeout waiting for candles'));
       }
-      // Можно добавить обработку других типов сообщений при необходимости
-    } catch (e) {
-      console.error('WS message parse error:', e);
-    }
-  };
+    }, 5000);
 
-  ws.onclose = () => {
-    console.log('WebSocket disconnected, reconnecting...');
-    wsConnected = false;
-    setTimeout(connectWebSocket, 5000);
-  };
+    wsClient.subscribeCandles(symbol, timeframe, (candles) => {
+      if (!received) {
+        received = true;
+        clearTimeout(timeout);
+        wsClient.close();
 
-  ws.onerror = (err) => {
-    console.error('WebSocket error:', err);
-    ws.close();
-  };
+        // Форматируем свечи под ваш код
+        // Пример свечи из API: { time: 1681234567, open, high, low, close, volume }
+        // Преобразуем время в ms
+        const klines = candles.map(c => ({
+          openTime: c.time * 1000,
+          open: c.open,
+          high: c.high,
+          low: c.low,
+          close: c.close,
+          closeTime: c.time * 1000 + getIntervalMs(timeframe) - 1,
+          volume: c.volume,
+        }));
+
+        resolve(klines);
+      }
+    });
+  });
 }
 
-// Функция подписки на котировки пары и таймфрейма
-function subscribePairTimeframe(pair, timeframe) {
-  const msg = {
-    action: 'subscribe_ohlc',
-    pair,
-    timeframe,
-  };
-  if (wsConnected) {
-    ws.send(JSON.stringify(msg));
-  } else {
-    wsQueue.push(msg);
+function getIntervalMs(timeframe) {
+  // Преобразуем таймфрейм в миллисекунды
+  if (timeframe.endsWith('m')) {
+    const m = parseInt(timeframe);
+    return m * 60 * 1000;
   }
+  if (timeframe.endsWith('h')) {
+    const h = parseInt(timeframe);
+    return h * 60 * 60 * 1000;
+  }
+  if (timeframe.endsWith('d')) {
+    const d = parseInt(timeframe);
+    return d * 24 * 60 * 60 * 1000;
+  }
+  return 60000; // по умолчанию 1 минута
 }
 
-// --- Замена генерации фейковых данных ---
-// Теперь данные берутся из historyData, если есть, иначе ждем или сообщаем ошибку
-async function getRealOHLC(pair, timeframe, count = 100) {
-  const key = `${pair}_${timeframe}`;
-  let klines = historyData[key];
-  if (!klines || klines.length < count) {
-    // Ждем данные с WS (максимум 5 секунд)
-    for (let i = 0; i < 10; i++) {
-      await new Promise(r => setTimeout(r, 500));
-      klines = historyData[key];
-      if (klines && klines.length >= count) break;
-    }
-  }
-  if (!klines || klines.length === 0) {
-    throw new Error('Нет данных по котировкам для ' + key);
-  }
-  // Возвращаем последние count свечей
-  return klines.slice(-count);
-}
+// --- Изменяем обработку выбора таймфрейма ---
 
-// --- В обработчике выбора таймфрейма заменяем генерацию ---
 bot.on('callback_query', async (ctx) => {
   const data = ctx.callbackQuery.data;
   const lang = ctx.session.lang || 'ru'; // По умолчанию русский
@@ -171,12 +205,8 @@ bot.on('callback_query', async (ctx) => {
     await ctx.editMessageText(langData.texts.analysisStarting(displayNames[ctx.session.pair][lang], tf.label));
 
     try {
-      // Подписываемся на реальные котировки
-      subscribePairTimeframe(ctx.session.pair, tf.value);
-
-      // Получаем реальные данные (ждем, если надо)
-      const klines = await getRealOHLC(ctx.session.pair, tf.value, 100);
-      historyData[`${ctx.session.pair}_${tf.value}`] = klines; // сохраняем
+      // Получаем реальные свечи через API
+      const klines = await getCandles(ctx.session.pair, tf.value);
 
       const closes = klines.map(k => k.close);
       const sma5 = calculateSMA(closes, 5);
@@ -194,17 +224,17 @@ bot.on('callback_query', async (ctx) => {
         Markup.button.callback(langData.texts.nextAnalysis, 'next_analysis')
       ]));
     } catch (e) {
-      console.error('Ошибка получения или анализа данных:', e);
+      console.error('Ошибка получения данных с Pocket Option:', e);
       await ctx.reply(langData.texts.errorGeneratingChart);
     }
+
     return;
   }
 
   await ctx.answerCbQuery(langData.texts.unknownCmd);
 });
 
-// Запускаем WebSocket при старте бота
-connectWebSocket();
+// --- Остальной код бота без изменений ---
 
 bot.launch();
 console.log('Бот запущен и готов к работе');
