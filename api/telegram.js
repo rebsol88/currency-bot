@@ -165,6 +165,7 @@ bot.on('text', async (ctx) => {
 
     if (isAdmin(ctx)) {
       if (!ctx.session.authorized) ctx.session.authorized = true;
+      // Админу можно отвечать, если нужно
       return;
     }
 
@@ -325,7 +326,9 @@ async function sendPairSelection(ctx, lang) {
 // --- Минимальный тестовый обработчик для проверки отклика ---
 bot.command('test', async (ctx) => {
   try {
+    console.log('Обработка /test');
     await ctx.reply('Тестовый ответ: бот работает!');
+    console.log('Ответ на /test отправлен');
   } catch (e) {
     console.error('Ошибка в /test:', e);
   }
@@ -337,5 +340,6 @@ bot.catch((err, ctx) => {
 });
 
 // --- Запуск бота ---
-bot.launch();
-console.log('Бот запущен и готов к работе');
+bot.launch()
+  .then(() => console.log('Бот запущен и готов к работе'))
+  .catch(e => console.error('Ошибка запуска бота:', e));
