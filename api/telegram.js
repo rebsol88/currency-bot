@@ -581,10 +581,7 @@ bot.start((ctx) => {
   const mainKeyboard = chunkArray(mainButtons, 2);
   const otcKeyboard = chunkArray(otcButtons, 2);
 
-  // Теперь нужно объединить main и otc по строкам, чтобы получилось 2 колонки:
-  // Левая колонка — main, правая — otc
-  // Для этого возьмём максимум строк из обоих, и сформируем строки с 2 кнопками: [main[i], otc[i]]
-
+  // Объединяем main и otc по строкам, чтобы получить 2 колонки:
   const maxRows = Math.max(mainKeyboard.length, otcKeyboard.length);
   const keyboardFinal = [];
 
@@ -592,31 +589,38 @@ bot.start((ctx) => {
     const leftButtons = mainKeyboard[i] || [];
     const rightButtons = otcKeyboard[i] || [];
 
-    // Подготовим кнопки для левой и правой колонки
-    // Если меньше 2 кнопок, добавим пустые, чтобы ровнять колонки
+    // Добавим пустые элементы, если меньше 2 кнопок, для выравнивания
     while (leftButtons.length < 2) leftButtons.push(' ');
     while (rightButtons.length < 2) rightButtons.push(' ');
 
-    // Каждая строка — 4 кнопки: 2 слева (main) + 2 справа (otc)
-    // Но Telegram клавиатура не поддерживает колонки, поэтому сделаем 2 кнопки в строку с текстом " " для выравнивания
-    // Чтобы визуально было 2 колонки, сделаем так: 
-    // строка с кнопками [ main1, otc1 ]
-    // строка с кнопками [ main2, otc2 ]
-    // и так далее
-
-    // Добавим 2 строки на каждый i (для 2 кнопок main и 2 кнопок otc)
+    // Добавляем 2 строки на каждый i (по 2 кнопки main и 2 кнопки otc)
     keyboardFinal.push([leftButtons[0], rightButtons[0]]);
     keyboardFinal.push([leftButtons[1], rightButtons[1]]);
   }
 
-  ctx.reply('Привет! Выберите валютную пару:', Markup.keyboard(keyboardFinal).resize().oneTime());
+  // Создаём inline клавиатуру из keyboardFinal
+  const inlineButtons = keyboardFinal.map(row =>
+    row.map(text => Markup.button.callback(text.trim(), text.trim()))
+  );
+
+  ctx.reply(
+    'Привет! Выберите валютную пару:',
+    Markup.inlineKeyboard(inlineButtons)
+  );
 });
 
-bot.hears([...pairsMain.map(p => displayNames[p]), ...pairsOTC.map(p => displayNames[p])], (ctx) => {
-  const pair = Object.entries(displayNames).find(([, name]) => name === ctx.message.text)?.[0];
-  if (!pair) return ctx.reply('Пара не найдена.');
+// Обработка нажатий inline кнопок с валютными парами
+bot.on('callback_query', async (ctx) => {
+  const pairName = ctx.callbackQuery.data;
+  // Находим пару по названию
+  const pair = Object.entries(displayNames).find(([, name]) => name === pairName)?.[0];
+  if (!pair) {
+    await ctx.answerCbQuery('Пара не найдена');
+    return;
+  }
   ctx.session.pair = pair;
-  ctx.reply('Выберите таймфрейм:', Markup.keyboard(timeframes.map(tf => tf.label)).oneTime().resize());
+  await ctx.answerCbQuery(); // Убираем "часики" на кнопке
+  await ctx.reply('Выберите таймфрейм:', Markup.keyboard(timeframes.map(tf => tf.label)).oneTime().resize());
 });
 
 bot.hears(timeframes.map(tf => tf.label), async (ctx) => {
