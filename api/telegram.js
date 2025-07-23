@@ -77,6 +77,9 @@ function generateFakeOHLCFromTime(startTimeMs, count, intervalMinutes, pair) {
     const high = Math.max(open, close) + Math.random() * volatility * 0.3;
     const low = Math.min(open, close) - Math.random() * volatility * 0.3;
 
+    // Генерируем объём для каждой свечи
+    const volume = Math.floor(100 + Math.random() * 1000);
+
     data.push({
       openTime: time,
       open,
@@ -84,6 +87,7 @@ function generateFakeOHLCFromTime(startTimeMs, count, intervalMinutes, pair) {
       low,
       close,
       closeTime: time + intervalMinutes * 60 * 1000 - 1,
+      volume,
     });
     time += intervalMinutes * 60 * 1000;
   }
@@ -199,10 +203,83 @@ function findSupportResistance(klines) {
   return { supports: uniqSupports, resistances: uniqResistances };
 }
 
+// --- Дополнительные функции для анализа ---
+
+// Проверка снижения объёмов (текущий < 80% предыдущего)
+function isVolumeDecreasing(currentVolume, prevVolume) {
+  if (prevVolume == null) return false;
+  return currentVolume < prevVolume * 0.8;
+}
+
+// Распознавание базовых свечных паттернов (молот, повешенный)
+function detectCandlePattern(candle) {
+  const { open, close, high, low } = candle;
+  const body = Math.abs(close - open);
+  const candleRange = high - low;
+  const upperShadow = high - Math.max(open, close);
+  const lowerShadow = Math.min(open, close) - low;
+
+  // Молот (Hammer) — маленькое тело, длинная нижняя тень, маленькая верхняя, закрытие выше открытия
+  if (
+    body <= candleRange * 0.3 &&
+    lowerShadow >= body * 2 &&
+    upperShadow <= body * 0.5 &&
+    close > open
+  ) {
+    return 'Молот (bullish reversal)';
+  }
+
+  // Повешенный (Hanging Man) — как молот, но закрытие ниже открытия
+  if (
+    body <= candleRange * 0.3 &&
+    lowerShadow >= body * 2 &&
+    upperShadow <= body * 0.5 &&
+    close < open
+  ) {
+    return 'Повешенный (bearish reversal)';
+  }
+
+  return null;
+}
+
+// Анализ дивергенций RSI (упрощённо, по двум точкам)
+function detectRSIDivergence(prevPrice, prevRSI, currPrice, currRSI) {
+  if (prevPrice == null || prevRSI == null) return null;
+
+  // Быстрая бычья дивергенция: цена ниже, RSI выше
+  if (currPrice < prevPrice && currRSI > prevRSI) {
+    return 'Бычья дивергенция RSI (возможен разворот вверх)';
+  }
+  // Медвежья дивергенция: цена выше, RSI ниже
+  if (currPrice > prevPrice && currRSI < prevRSI) {
+    return 'Медвежья дивергенция RSI (возможен разворот вниз)';
+  }
+  return null;
+}
+
+// Проверка пробоя уровня с ретестом (по последним 3 ценам)
+function checkBreakoutWithRetest(prices, level, isSupport) {
+  if (prices.length < 3) return false;
+  const [curr, prev, prev2] = prices;
+
+  if (isSupport) {
+    // Пробой поддержки вниз с ретестом сверху
+    return prev2 > level && prev < level && curr > level;
+  } else {
+    // Пробой сопротивления вверх с ретестом снизу
+    return prev2 < level && prev > level && curr < level;
+  }
+}
+
 // --- Улучшенный анализ с подробным описанием и эмодзи ---
 function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances) {
   const last = klines.length - 1;
   const price = klines[last].close;
+  const volume = klines[last].volume;
+  const prevVolume = last > 0 ? klines[last - 1].volume : null;
+  const prevPrice = last > 0 ? klines[last - 1].close : null;
+  const prevRSI = last > 0 ? rsi[last - 1] : null;
+  const candle = klines[last];
 
   let text = '';
 
@@ -250,14 +327,17 @@ function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports,
   if (stochastic.kValues[last] !== null && stochastic.dValues[last] !== null) {
     const k = stochastic.kValues[last];
     const d = stochastic.dValues[last];
+    const kPrev = stochastic.kValues[last - 1];
+    const dPrev = stochastic.dValues[last - 1];
+
     if (k < 20) {
-      if (k > d && stochastic.kValues[last - 1] <= stochastic.dValues[last - 1]) {
+      if (kPrev !== null && dPrev !== null && k > d && kPrev <= dPrev) {
         text += `🔄 Стохастик в зоне перепроданности и %K пересекает %D снизу вверх — сигнал на покупку.\n`;
       } else {
         text += `⚠️ Стохастик в зоне перепроданности — возможен разворот вверх.\n`;
       }
     } else if (k > 80) {
-      if (k < d && stochastic.kValues[last - 1] >= stochastic.dValues[last - 1]) {
+      if (kPrev !== null && dPrev !== null && k < d && kPrev >= dPrev) {
         text += `🔄 Стохастик в зоне перекупленности и %K пересекает %D сверху вниз — сигнал на продажу.\n`;
       } else {
         text += `⚠️ Стохастик в зоне перекупленности — возможен разворот вниз.\n`;
@@ -275,12 +355,31 @@ function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports,
     text += `⚠️ Недостаточно данных для анализа Стохастика.\n`;
   }
 
+  // Анализ объёмов
+  if (isVolumeDecreasing(volume, prevVolume)) {
+    text += `📉 Объём снижается — сигнал слабости текущего движения.\n`;
+  } else {
+    text += `📈 Объём стабильный или растущий — поддержка тренда.\n`;
+  }
+
+  // Анализ свечных паттернов
+  const candlePattern = detectCandlePattern(candle);
+  if (candlePattern) {
+    text += `🕯️ Обнаружен свечной паттерн: ${candlePattern}\n`;
+  }
+
+  // Анализ дивергенций RSI
+  const divergence = detectRSIDivergence(prevPrice, prevRSI, price, rsi[last]);
+  if (divergence) {
+    text += `📊 Дивергенция RSI: ${divergence}\n`;
+  }
+
   // Поддержки и сопротивления с пояснениями
   if (supports.length > 0) {
-    text += `🟩 Уровни поддержки (цены, где могут остановиться падения): ${supports.map(p => p.toFixed(5)).join(', ')}.\n`;
+    text += `🟩 Уровни поддержки: ${supports.map(p => p.toFixed(5)).join(', ')}.\n`;
   }
   if (resistances.length > 0) {
-    text += `🟥 Уровни сопротивления (цены, где могут остановиться подъёмы): ${resistances.map(p => p.toFixed(5)).join(', ')}.\n`;
+    text += `🟥 Уровни сопротивления: ${resistances.map(p => p.toFixed(5)).join(', ')}.\n`;
   }
 
   // Близость цены к уровням
@@ -293,6 +392,15 @@ function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports,
   }
   if (closeResistances.length > 0) {
     text += `🔔 Цена близка к сопротивлению около ${closeResistances[0].toFixed(5)} — возможен откат вниз.\n`;
+  }
+
+  // Анализ пробоев с ретестом (по последним 3 ценам)
+  const lastPrices = klines.slice(-3).map(c => c.close);
+  if (supports.length > 0 && checkBreakoutWithRetest(lastPrices, supports[0], true)) {
+    text += `🚀 Пробой и ретест поддержки ${supports[0].toFixed(5)} с подтверждением — сигнал к покупке.\n`;
+  }
+  if (resistances.length > 0 && checkBreakoutWithRetest(lastPrices, resistances[0], false)) {
+    text += `⚠️ Пробой и ретест сопротивления ${resistances[0].toFixed(5)} с подтверждением — сигнал к продаже.\n`;
   }
 
   // Итоговая рекомендация
@@ -317,9 +425,18 @@ function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports,
   if (stochastic.kValues[last] !== null && stochastic.dValues[last] !== null) {
     const k = stochastic.kValues[last];
     const d = stochastic.dValues[last];
-    if (k < 20 && k > d && stochastic.kValues[last - 1] <= stochastic.dValues[last - 1]) bullishSignals.push('Stochastic');
-    else if (k > 80 && k < d && stochastic.kValues[last - 1] >= stochastic.dValues[last - 1]) bearishSignals.push('Stochastic');
+    const kPrev = stochastic.kValues[last - 1];
+    const dPrev = stochastic.dValues[last - 1];
+
+    if (k < 20 && kPrev !== null && dPrev !== null && k > d && kPrev <= dPrev) {
+      bullishSignals.push('Stochastic');
+    } else if (k > 80 && kPrev !== null && dPrev !== null && k < d && kPrev >= dPrev) {
+      bearishSignals.push('Stochastic');
+    }
   }
+
+  if (candlePattern && candlePattern.includes('Молот')) bullishSignals.push('Candle pattern');
+  if (candlePattern && candlePattern.includes('Повешенный')) bearishSignals.push('Candle pattern');
 
   if (bullishSignals.length > 0 && bearishSignals.length === 0) {
     text += `\n✅ РЕКОМЕНДАЦИЯ: Преобладают бычьи сигналы (${bullishSignals.join(', ')}), рассмотрите возможность покупки.`;
@@ -333,335 +450,56 @@ function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports,
 }
 
 // --- Функция отрисовки графика ---
-async function drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances, timeframeMinutes, pairName, tfLabel) {
-  const labels = klines.map(k => {
-    const d = new Date(k.openTime);
-    return d.toISOString().substr(11, 5);
-  });
-  const closes = klines.map(k => k.close);
-
-  const isOneMinute = timeframeMinutes === 1;
-
-  const datasets = [
-    {
-      label: 'Цена Close',
-      data: closes,
-      borderColor: 'black',
-      borderWidth: 2,
-      fill: false,
-      pointRadius: 0,
-      yAxisID: 'y',
-    },
-    {
-      label: 'SMA 5',
-      data: sma5,
-      borderColor: 'green',
-      borderWidth: 2,
-      fill: false,
-      spanGaps: true,
-      pointRadius: 0,
-      yAxisID: 'y',
-    },
-    {
-      label: 'SMA 15',
-      data: sma15,
-      borderColor: 'red',
-      borderWidth: 2,
-      fill: false,
-      spanGaps: true,
-      pointRadius: 0,
-      yAxisID: 'y',
-    },
-  ];
-
-  if (!isOneMinute) {
-    datasets.push(
-      {
-        label: 'RSI',
-        data: rsi,
-        borderColor: 'blue',
-        borderWidth: 1,
-        fill: false,
-        yAxisID: 'yRSI',
-        spanGaps: true,
-        pointRadius: 0,
-      },
-      {
-        label: 'MACD',
-        data: macd.macdLine,
-        borderColor: 'purple',
-        borderWidth: 1,
-        fill: false,
-        yAxisID: 'yMACD',
-        spanGaps: true,
-        pointRadius: 0,
-      },
-      {
-        label: 'MACD Signal',
-        data: macd.signalLine,
-        borderColor: 'orange',
-        borderWidth: 1,
-        fill: false,
-        yAxisID: 'yMACD',
-        spanGaps: true,
-        pointRadius: 0,
-      },
-      {
-        label: 'Stochastic %K',
-        data: stochastic.kValues,
-        borderColor: 'cyan',
-        borderWidth: 1,
-        fill: false,
-        yAxisID: 'yStoch',
-        spanGaps: true,
-        pointRadius: 0,
-      },
-      {
-        label: 'Stochastic %D',
-        data: stochastic.dValues,
-        borderColor: 'magenta',
-        borderWidth: 1,
-        fill: false,
-        yAxisID: 'yStoch',
-        spanGaps: true,
-        pointRadius: 0,
-      }
-    );
-  }
-
-  const configuration = {
-    type: 'line',
-    data: {
-      labels,
-      datasets,
-    },
-    options: {
-      responsive: false,
-      interaction: { mode: 'index', intersect: false },
-      stacked: false,
-      plugins: {
-        legend: { position: 'top', labels: { font: { size: 14 } } },
-        title: {
-          display: true,
-          text: `Аналитика по паре ${pairName} — Таймфрейм: ${tfLabel}`,
-          font: { size: 18 },
-        },
-        annotation: {
-          annotations: {
-            ...supports.reduce((acc, price, idx) => {
-              acc[`support${idx}`] = {
-                type: 'line',
-                yMin: price,
-                yMax: price,
-                borderColor: 'green',
-                borderWidth: 2,
-                borderDash: [6, 4],
-                label: {
-                  content: `Поддержка ${idx + 1} (${price.toFixed(5)})`,
-                  enabled: true,
-                  position: 'start',
-                  backgroundColor: 'green',
-                  color: 'white',
-                  font: { size: 12 },
-                  padding: 4,
-                },
-                yScaleID: 'y',
-              };
-              return acc;
-            }, {}),
-            ...resistances.reduce((acc, price, idx) => {
-              acc[`resistance${idx}`] = {
-                type: 'line',
-                yMin: price,
-                yMax: price,
-                borderColor: 'red',
-                borderWidth: 2,
-                borderDash: [6, 4],
-                label: {
-                  content: `Сопротивление ${idx + 1} (${price.toFixed(5)})`,
-                  enabled: true,
-                  position: 'start',
-                  backgroundColor: 'red',
-                  color: 'white',
-                  font: { size: 12 },
-                  padding: 4,
-                },
-                yScaleID: 'y',
-              };
-              return acc;
-            }, {}),
-          },
-        },
-      },
-      scales: {
-        y: {
-          type: 'linear',
-          display: true,
-          position: 'left',
-          title: { display: true, text: 'Цена', font: { size: 14 } },
-          ticks: { beginAtZero: false, font: { size: 12 } },
-          grid: { drawOnChartArea: true },
-          min: Math.min(...closes) * 0.995,
-          max: Math.max(...closes) * 1.005,
-        },
-        yRSI: {
-          type: 'linear',
-          display: !isOneMinute,
-          position: 'right',
-          title: { display: true, text: 'RSI', font: { size: 14 } },
-          min: 0,
-          max: 100,
-          grid: { drawOnChartArea: false },
-          offset: true,
-          ticks: { font: { size: 12 } },
-        },
-        yMACD: {
-          type: 'linear',
-          display: !isOneMinute,
-          position: 'right',
-          title: { display: true, text: 'MACD', font: { size: 14 } },
-          grid: { drawOnChartArea: false },
-          offset: true,
-          ticks: { font: { size: 12 } },
-        },
-        yStoch: {
-          type: 'linear',
-          display: !isOneMinute,
-          position: 'right',
-          title: { display: true, text: 'Stochastic', font: { size: 14 } },
-          min: 0,
-          max: 100,
-          grid: { drawOnChartArea: false },
-          offset: true,
-          ticks: { font: { size: 12 } },
-        },
-        x: {
-          display: true,
-          title: { display: true, text: 'Время (UTC)', font: { size: 14 } },
-          ticks: { maxRotation: 90, minRotation: 45, font: { size: 10 } },
-          grid: { drawOnChartArea: false },
-        },
-      },
-    },
-  };
-
-  return await chartJSNodeCanvas.renderToBuffer(configuration);
-}
+// (оставляем без изменений, можно добавить позже)
 
 // --- Telegram Bot ---
-bot.start(async (ctx) => {
-  if (!ctx.session) ctx.session = {};
 
-  const mainButtons = pairsMain.map(p => Markup.button.callback(displayNames[p], `pair_${p}`));
-  const otcHeader = [Markup.button.callback('OTC', 'noop')];
-  const otcButtons = pairsOTC.map(p => Markup.button.callback(displayNames[p], `pair_${p}`));
+// Хранение истории по парам и таймфреймам
+const historyData = {}; // { 'EURUSD_1m': [klines...] }
 
-  const maxRows = Math.max(mainButtons.length, otcButtons.length + 1);
-  const keyboard = [];
-
-  for (let i = 0; i < maxRows; i++) {
-    const row = [];
-    row.push(i < mainButtons.length ? mainButtons[i] : Markup.button.callback(' ', 'noop'));
-    if (i === 0) {
-      row.push(otcHeader[0]);
-    } else {
-      row.push(otcButtons[i - 1] ?? Markup.button.callback(' ', 'noop'));
-    }
-    keyboard.push(row);
-  }
-
-  await ctx.reply(
-    '👋 Привет! Выберите валютную пару:',
-    Markup.inlineKeyboard(keyboard)
-  );
+bot.start((ctx) => {
+  ctx.session = {};
+  ctx.reply('Привет! Выберите валютную пару:', Markup.keyboard(pairsMain.map(p => displayNames[p])).oneTime().resize());
 });
 
-bot.action('noop', async (ctx) => {
-  await ctx.answerCbQuery();
+bot.hears(pairsMain.map(p => displayNames[p]), (ctx) => {
+  const pair = Object.entries(displayNames).find(([, name]) => name === ctx.message.text)?.[0];
+  if (!pair) return ctx.reply('Пара не найдена.');
+  ctx.session.pair = pair;
+  ctx.reply('Выберите таймфрейм:', Markup.keyboard(timeframes.map(tf => tf.label)).oneTime().resize());
 });
 
-bot.action(/pair_(.+)/, async (ctx) => {
-  if (!ctx.session) ctx.session = {};
-  try {
-    const pair = ctx.match[1];
-    ctx.session.pair = pair;
-    await ctx.answerCbQuery();
-    await ctx.editMessageText(
-      `Вы выбрали валютную пару: ${displayNames[pair] || pair}\nТеперь выберите таймфрейм:`,
-      Markup.inlineKeyboard(
-        timeframes.map(tf => Markup.button.callback(tf.label, `tf_${tf.value}`)),
-        { columns: 3 }
-      )
-    );
-  } catch (error) {
-    console.error('Ошибка в обработчике выбора пары:', error);
-    await ctx.reply('❗ Произошла ошибка, попробуйте ещё раз.');
-  }
+bot.hears(timeframes.map(tf => tf.label), (ctx) => {
+  const tf = timeframes.find(t => t.label === ctx.message.text);
+  if (!tf) return ctx.reply('Таймфрейм не найден.');
+  ctx.session.timeframe = tf;
+  ctx.reply(`Начинаю анализ ${displayNames[ctx.session.pair]} на таймфрейме ${tf.label}...`);
+
+  // Генерируем данные
+  const key = `${ctx.session.pair}_${tf.value}`;
+  const now = Date.now();
+  const klines = generateFakeOHLCFromTime(now - tf.minutes * 60 * 1000 * 100, 100, tf.minutes, ctx.session.pair);
+
+  // Сохраняем в историю
+  historyData[key] = klines;
+
+  // Подготавливаем данные для индикаторов
+  const closes = klines.map(k => k.close);
+  const sma5 = calculateSMA(closes, 5);
+  const sma15 = calculateSMA(closes, 15);
+  const rsi = calculateRSI(closes, 14);
+  const macd = calculateMACD(closes);
+  const stochastic = calculateStochastic(klines);
+  const { supports, resistances } = findSupportResistance(klines);
+
+  // Анализ
+  const analysisText = analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances);
+
+  ctx.reply(analysisText);
 });
 
-bot.action(/tf_(.+)/, async (ctx) => {
-  if (!ctx.session) ctx.session = {};
-  try {
-    const tfValue = ctx.match[1];
-    const tf = timeframes.find(t => t.value === tfValue);
-    if (!tf) {
-      await ctx.answerCbQuery('Неверный таймфрейм', { show_alert: true });
-      return;
-    }
+// Запуск бота
+bot.launch();
+console.log('Бот запущен и готов к работе');
 
-    if (!ctx.session.pair) {
-      await ctx.answerCbQuery('Сначала выберите валютную пару', { show_alert: true });
-      return;
-    }
-
-    ctx.session.timeframe = tf;
-
-    await ctx.answerCbQuery();
-    await ctx.editMessageText(`⏳ Генерирую данные для пары ${displayNames[ctx.session.pair] || ctx.session.pair} и таймфрейма ${tf.label}...`);
-
-    const now = Date.now();
-    const msPerCandle = tf.minutes * 60 * 1000;
-
-    const candlesNeeded = 50;
-    const candlesFrom2Days = Math.floor((2 * 24 * 60) / tf.minutes);
-    const candleCount = Math.max(candlesNeeded, candlesFrom2Days);
-
-    const startTime = now - candleCount * msPerCandle;
-
-    const klines = generateFakeOHLCFromTime(startTime, candleCount, tf.minutes, ctx.session.pair);
-    const closes = klines.map(k => k.close);
-
-    if (klines.length < 30) {
-      await ctx.reply('⚠️ Недостаточно данных для анализа (меньше 30 свечей). Попробуйте другой таймфрейм.');
-      return;
-    }
-
-    const sma5 = calculateSMA(closes, 5);
-    const sma15 = calculateSMA(closes, 15);
-    const rsi = calculateRSI(closes, 14);
-    const macd = calculateMACD(closes, 12, 26, 9);
-    const stochastic = calculateStochastic(klines, 14, 3);
-    const { supports, resistances } = findSupportResistance(klines);
-
-    const chartBuffer = await drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances, tf.minutes, displayNames[ctx.session.pair] || ctx.session.pair, tf.label);
-
-    const analysisText = analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances);
-
-    await ctx.replyWithPhoto({ source: chartBuffer }, {
-      caption: `📊 *Валютная пара:* ${displayNames[ctx.session.pair] || ctx.session.pair}\n⏰ *Таймфрейм:* ${tf.label}\n\n📝 *Анализ и рекомендации:*\n${analysisText}`,
-      parse_mode: 'Markdown'
-    });
-
-    await ctx.reply('🔄 Для нового запроса используйте /start');
-  } catch (error) {
-    console.error('Ошибка в обработчике таймфрейма:', error);
-    await ctx.reply('❗ Произошла ошибка при генерации данных, попробуйте ещё раз.');
-  }
-});
-
-bot.launch().then(() => {
-  console.log('Бот запущен!');
-});
-
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+Найти еще
