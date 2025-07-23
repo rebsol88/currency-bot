@@ -110,7 +110,6 @@ const texts = {
     ru: 'Объём стабильный или растущий, поддерживает текущий тренд.',
     en: 'Volume is stable or increasing, supporting the current trend.',
   },
-  // ... другие тексты, если нужно
 };
 
 // --- Функции для локализации текста ---
@@ -130,17 +129,6 @@ function getTimeframeLabel(tf, lang = 'ru') {
   return tf.label?.[lang] || tf.label || '';
 }
 
-// --- Здесь идут ваши функции анализа и генерации графика ---
-// Для краткости их не повторяю, вставьте ваши реализации:
-// getBasePrice, generateFakeOHLCFromTime, calculateSMA, calculateRSI, calculateEMA,
-// calculateMACD, calculateStochastic, findSupportResistance, isVolumeDecreasing,
-// detectCandlePattern, detectRSIDivergence, checkBreakoutWithRetest,
-// generateDetailedRecommendationLang, analyzeIndicators и generateChartImage
-
-// --- Telegram Bot ---
-
-const historyData = {}; // { 'EURUSD_1m': [klines...] }
-
 function chunkArray(arr, size) {
   const result = [];
   for (let i = 0; i < arr.length; i += size) {
@@ -149,9 +137,175 @@ function chunkArray(arr, size) {
   return result;
 }
 
+// --- Генерация фиктивных OHLC данных ---
+function generateFakeOHLCFromTime(startTime, count, intervalMinutes, pair) {
+  const klines = [];
+  let time = startTime;
+  // Начальная цена в зависимости от пары (пример)
+  let basePrice = 1.0;
+  if (pair === 'EURUSD') basePrice = 1.1;
+  else if (pair === 'USDJPY') basePrice = 140;
+  else if (pair === 'GBPUSD') basePrice = 1.3;
+  else if (pair === 'USDCHF') basePrice = 0.9;
+  else if (pair === 'AUDUSD') basePrice = 0.7;
+  else if (pair === 'USDCAD') basePrice = 1.25;
+  else if (pair === 'NZDUSD') basePrice = 0.65;
+  else if (pair === 'EURGBP') basePrice = 0.85;
+  else if (pair.startsWith('OTC_')) basePrice = 1.0;
+
+  for (let i = 0; i < count; i++) {
+    const open = basePrice + (Math.random() - 0.5) * 0.01;
+    const close = open + (Math.random() - 0.5) * 0.01;
+    const high = Math.max(open, close) + Math.random() * 0.005;
+    const low = Math.min(open, close) - Math.random() * 0.005;
+    const volume = Math.floor(100 + Math.random() * 1000);
+
+    klines.push({
+      openTime: time,
+      open,
+      high,
+      low,
+      close,
+      volume,
+    });
+
+    time += intervalMinutes * 60 * 1000;
+    basePrice = close;
+  }
+  return klines;
+}
+
+// --- Простые реализации индикаторов (пример) ---
+function calculateSMA(data, period) {
+  const sma = [];
+  for (let i = 0; i < data.length; i++) {
+    if (i < period - 1) {
+      sma.push(null);
+      continue;
+    }
+    const sum = data.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0);
+    sma.push(sum / period);
+  }
+  return sma;
+}
+
+function calculateRSI(data, period) {
+  const rsi = [];
+  for (let i = 0; i < data.length; i++) {
+    if (i < period) {
+      rsi.push(null);
+      continue;
+    }
+    let gains = 0;
+    let losses = 0;
+    for (let j = i - period + 1; j <= i; j++) {
+      const diff = data[j] - data[j - 1];
+      if (diff > 0) gains += diff;
+      else losses -= diff;
+    }
+    const rs = gains / (losses || 1);
+    rsi.push(100 - 100 / (1 + rs));
+  }
+  return rsi;
+}
+
+// Заглушки для остальных индикаторов — добавьте свои реализации при необходимости
+function calculateMACD(data) {
+  // Заглушка: возвращаем пустой объект с macd, signal, histogram
+  return { macd: [], signal: [], histogram: [] };
+}
+function calculateStochastic(data) {
+  return { k: [], d: [] };
+}
+function findSupportResistance(data) {
+  return { supports: [], resistances: [] };
+}
+function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances, lang) {
+  // Пример простого анализа
+  return lang === 'ru'
+    ? 'Анализ завершён. (Здесь можно добавить подробный анализ)'
+    : 'Analysis completed. (Detailed analysis can be added here)';
+}
+
+// --- Генерация графика ---
+async function generateChartImage(klines, sma5, sma15, supports, resistances, pair, tfLabel) {
+  const labels = klines.map((k) => new Date(k.openTime).toLocaleString());
+  const open = klines.map((k) => k.open);
+  const high = klines.map((k) => k.high);
+  const low = klines.map((k) => k.low);
+  const close = klines.map((k) => k.close);
+
+  const datasets = [
+    {
+      label: 'Close',
+      data: close,
+      borderColor: 'blue',
+      fill: false,
+      tension: 0.1,
+      pointRadius: 0,
+    },
+    {
+      label: 'SMA 5',
+      data: sma5,
+      borderColor: 'green',
+      fill: false,
+      tension: 0.1,
+      pointRadius: 0,
+    },
+    {
+      label: 'SMA 15',
+      data: sma15,
+      borderColor: 'red',
+      fill: false,
+      tension: 0.1,
+      pointRadius: 0,
+    },
+  ];
+
+  const config = {
+    type: 'line',
+    data: {
+      labels,
+      datasets,
+    },
+    options: {
+      plugins: {
+        title: {
+          display: true,
+          text: `${pair} - ${tfLabel}`,
+        },
+        legend: {
+          display: true,
+          position: 'bottom',
+        },
+        annotation: {
+          annotations: {
+            // Можно добавить аннотации, например, уровни поддержки/сопротивления
+          },
+        },
+      },
+      scales: {
+        x: {
+          display: true,
+          title: { display: true, text: 'Время' },
+        },
+        y: {
+          display: true,
+          title: { display: true, text: 'Цена' },
+        },
+      },
+    },
+  };
+
+  return await chartJSNodeCanvas.renderToBuffer(config);
+}
+
+// --- Telegram Bot ---
+
+const historyData = {}; // { 'EURUSD_1m': [klines...] }
+
 bot.start(async (ctx) => {
   ctx.session = {};
-  // Отправляем сообщение с кнопками выбора языка — убедитесь, что кнопки — массив массивов
   await ctx.reply(
     texts.start.ru + '\n' + texts.start.en,
     Markup.inlineKeyboard([
@@ -171,7 +325,6 @@ bot.on('callback_query', async (ctx) => {
     ctx.session.language = data === 'lang_ru' ? 'ru' : 'en';
     await ctx.answerCbQuery();
 
-    // Формируем кнопки выбора пары с правильной структурой (массив массивов)
     const langPairsMain = pairsMain.map((p) => getDisplayName(p, ctx.session.language));
     const langPairsOTC = pairsOTC.map((p) => getDisplayName(p, ctx.session.language));
 
@@ -188,7 +341,6 @@ bot.on('callback_query', async (ctx) => {
       while (leftButtons.length < 2) leftButtons.push(' ');
       while (rightButtons.length < 2) rightButtons.push(' ');
 
-      // Каждая строка — массив кнопок, объединяем пары по 2 в строку
       keyboardFinal.push([
         Markup.button.callback(leftButtons[0].trim(), leftButtons[0].trim()),
         Markup.button.callback(rightButtons[0].trim(), rightButtons[0].trim()),
@@ -211,7 +363,6 @@ bot.on('callback_query', async (ctx) => {
     ctx.session.pair = pairEntry[0];
     await ctx.answerCbQuery();
 
-    // Формируем кнопки таймфреймов
     const tfButtons = timeframes.map((tf) =>
       Markup.button.callback(getTimeframeLabel(tf, lang), getTimeframeLabel(tf, lang))
     );
@@ -284,7 +435,6 @@ bot.on('callback_query', async (ctx) => {
     return;
   }
 
-  // Неизвестный callback
   await ctx.answerCbQuery(t(ctx, 'unknownCommand'));
 });
 
