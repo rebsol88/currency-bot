@@ -31,7 +31,10 @@ const chartJSNodeCanvas = new ChartJSNodeCanvas({
 const admins = [6824399168, 316971294]; // Добавлен новый админ
 
 function isAdmin(ctx) {
-  return admins.includes(ctx.from.id);
+  const id = ctx.from?.id;
+  const result = admins.includes(id);
+  console.log(`isAdmin check for ID ${id}: ${result}`);
+  return result;
 }
 
 // --- Лицензионные ключи ---
@@ -186,6 +189,8 @@ bot.command('genkey', async (ctx) => {
   const lang = ctx.session.lang || 'ru';
   const texts = languages[lang].texts;
 
+  console.log(`/genkey вызван пользователем ${ctx.from.id}`);
+
   if (!isAdmin(ctx)) {
     await ctx.reply(texts.access_denied);
     return;
@@ -224,6 +229,8 @@ bot.command('listkeys', async (ctx) => {
   const lang = ctx.session.lang || 'ru';
   const texts = languages[lang].texts;
 
+  console.log(`/listkeys вызван пользователем ${ctx.from.id}`);
+
   if (!isAdmin(ctx)) {
     await ctx.reply(texts.access_denied);
     return;
@@ -246,6 +253,8 @@ bot.command('delkey', async (ctx) => {
   ctx.session = ctx.session || {};
   const lang = ctx.session.lang || 'ru';
   const texts = languages[lang].texts;
+
+  console.log(`/delkey вызван пользователем ${ctx.from.id}`);
 
   if (!isAdmin(ctx)) {
     await ctx.reply(texts.access_denied);
