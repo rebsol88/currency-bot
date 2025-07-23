@@ -154,11 +154,8 @@ function calculateMACD(data, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9)
     return val - emaSlow[idx];
   });
 
-  // Сигнальная линия считается от macdLine, начиная с slowPeriod - 1
-  // Для упрощения выравниваем длины
   const macdLineForSignal = macdLine.slice(slowPeriod - 1).filter(v => v !== null);
   const signalLinePart = calculateEMA(macdLineForSignal, signalPeriod);
-  // Заполняем null в начале
   const signalLine = Array(slowPeriod - 1 + signalPeriod - 1).fill(null).concat(signalLinePart);
 
   const histogram = macdLine.map((val, idx) => {
@@ -216,22 +213,19 @@ function findSupportResistance(klines) {
 
 // --- Дополнительные функции для анализа ---
 
-// Проверка снижения объёмов (текущий < 80% предыдущего)
 function isVolumeDecreasing(currentVolume, prevVolume) {
   if (prevVolume == null) return false;
   return currentVolume < prevVolume * 0.8;
 }
 
-// Распознавание базовых свечных паттернов (молот, повешенный)
 function detectCandlePattern(candle) {
   const { open, close, high, low } = candle;
   const body = Math.abs(close - open);
   const candleRange = high - low;
-  if (candleRange === 0) return null; // Защита от деления на 0
+  if (candleRange === 0) return null;
   const upperShadow = high - Math.max(open, close);
   const lowerShadow = Math.min(open, close) - low;
 
-  // Молот (Hammer) — маленькое тело, длинная нижняя тень, маленькая верхняя, закрытие выше открытия
   if (
     body <= candleRange * 0.3 &&
     lowerShadow >= body * 2 &&
@@ -241,7 +235,6 @@ function detectCandlePattern(candle) {
     return 'Молот (bullish reversal)';
   }
 
-  // Повешенный (Hanging Man) — как молот, но закрытие ниже открытия
   if (
     body <= candleRange * 0.3 &&
     lowerShadow >= body * 2 &&
@@ -254,37 +247,29 @@ function detectCandlePattern(candle) {
   return null;
 }
 
-// Анализ дивергенций RSI (упрощённо, по двум точкам)
 function detectRSIDivergence(prevPrice, prevRSI, currPrice, currRSI) {
   if (prevPrice == null || prevRSI == null) return null;
 
-  // Быстрая бычья дивергенция: цена ниже, RSI выше
   if (currPrice < prevPrice && currRSI > prevRSI) {
     return 'Бычья дивергенция RSI (возможен разворот вверх)';
   }
-  // Медвежья дивергенция: цена выше, RSI ниже
   if (currPrice > prevPrice && currRSI < prevRSI) {
     return 'Медвежья дивергенция RSI (возможен разворот вниз)';
   }
   return null;
 }
 
-// Проверка пробоя уровня с ретестом (по последним 3 ценам)
-// prices - массив последних 3 цен [curr, prev, prev2]
 function checkBreakoutWithRetest(prices, level, isSupport) {
   if (prices.length < 3) return false;
   const [curr, prev, prev2] = prices;
 
   if (isSupport) {
-    // Пробой поддержки вниз с ретестом сверху: prev2 > level, prev < level, curr > level
     return prev2 > level && prev < level && curr > level;
   } else {
-    // Пробой сопротивления вверх с ретестом снизу: prev2 < level, prev > level, curr < level
     return prev2 < level && prev > level && curr < level;
   }
 }
 
-// --- Улучшенный анализ с подробным описанием и эмодзи ---
 function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances) {
   const last = klines.length - 1;
   const price = klines[last].close;
@@ -296,7 +281,6 @@ function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports,
 
   let text = '';
 
-  // Анализ SMA
   if (sma5[last] !== null && sma15[last] !== null) {
     if (sma5[last] > sma15[last]) {
       text += `📈 SMA(5) выше SMA(15) — возможен восходящий тренд (цена растёт).\n`;
@@ -309,7 +293,6 @@ function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports,
     text += `⚠️ Недостаточно данных для анализа SMA.\n`;
   }
 
-  // Анализ RSI
   if (rsi[last] !== null) {
     const rsiVal = rsi[last];
     if (rsiVal > 70) {
@@ -323,7 +306,6 @@ function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports,
     text += `⚠️ Недостаточно данных для анализа RSI.\n`;
   }
 
-  // Анализ MACD
   if (macd.macdLine[last] !== null && macd.signalLine[last] !== null) {
     if (macd.macdLine[last] > macd.signalLine[last]) {
       text += `🐂 MACD — бычий сигнал (вероятен рост).\n`;
@@ -336,7 +318,6 @@ function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports,
     text += `⚠️ Недостаточно данных для анализа MACD.\n`;
   }
 
-  // Анализ Stochastic
   if (stochastic.kValues[last] !== null && stochastic.dValues[last] !== null) {
     const k = stochastic.kValues[last];
     const d = stochastic.dValues[last];
@@ -368,26 +349,22 @@ function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports,
     text += `⚠️ Недостаточно данных для анализа Стохастика.\n`;
   }
 
-  // Анализ объёмов
   if (isVolumeDecreasing(volume, prevVolume)) {
     text += `📉 Объём снижается — сигнал слабости текущего движения.\n`;
   } else {
     text += `📈 Объём стабильный или растущий — поддержка тренда.\n`;
   }
 
-  // Анализ свечных паттернов
   const candlePattern = detectCandlePattern(candle);
   if (candlePattern) {
     text += `🕯️ Обнаружен свечной паттерн: ${candlePattern}\n`;
   }
 
-  // Анализ дивергенций RSI
   const divergence = detectRSIDivergence(prevPrice, prevRSI, price, rsi[last]);
   if (divergence) {
     text += `📊 Дивергенция RSI: ${divergence}\n`;
   }
 
-  // Поддержки и сопротивления с пояснениями
   if (supports.length > 0) {
     text += `🟩 Уровни поддержки: ${supports.map(p => p.toFixed(5)).join(', ')}.\n`;
   }
@@ -395,8 +372,7 @@ function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports,
     text += `🟥 Уровни сопротивления: ${resistances.map(p => p.toFixed(5)).join(', ')}.\n`;
   }
 
-  // Близость цены к уровням
-  const threshold = 0.0015; // ~0.15%
+  const threshold = 0.0015;
   const closeSupports = supports.filter(s => Math.abs(price - s) / s < threshold);
   const closeResistances = resistances.filter(r => Math.abs(price - r) / r < threshold);
 
@@ -407,7 +383,6 @@ function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports,
     text += `🔔 Цена близка к сопротивлению около ${closeResistances[0].toFixed(5)} — возможен откат вниз.\n`;
   }
 
-  // Анализ пробоев с ретестом (по последним 3 ценам)
   const lastPrices = klines.slice(-3).map(c => c.close);
   if (supports.length > 0 && checkBreakoutWithRetest(lastPrices, supports[0], true)) {
     text += `🚀 Пробой и ретест поддержки ${supports[0].toFixed(5)} с подтверждением — сигнал к покупке.\n`;
@@ -416,7 +391,6 @@ function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports,
     text += `⚠️ Пробой и ретест сопротивления ${resistances[0].toFixed(5)} с подтверждением — сигнал к продаже.\n`;
   }
 
-  // Итоговая рекомендация
   const bullishSignals = [];
   const bearishSignals = [];
 
@@ -462,37 +436,183 @@ function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports,
   return text;
 }
 
+// --- Функция генерации графика ---
+async function generateChartImage(klines, sma5, sma15, supports, resistances, pair, timeframeLabel) {
+  const labels = klines.map(k => new Date(k.openTime).toISOString().substr(11, 5)); // HH:MM
+  const closePrices = klines.map(k => k.close);
+
+  const supportAnnotations = supports.map((s, i) => ({
+    type: 'line',
+    yMin: s,
+    yMax: s,
+    borderColor: 'green',
+    borderWidth: 2,
+    borderDash: [6, 6],
+    label: {
+      content: `Поддержка ${i + 1} (${s.toFixed(5)})`,
+      enabled: true,
+      position: 'start',
+      backgroundColor: 'green',
+      color: 'white',
+      font: { size: 12 },
+    },
+  }));
+
+  const resistanceAnnotations = resistances.map((r, i) => ({
+    type: 'line',
+    yMin: r,
+    yMax: r,
+    borderColor: 'red',
+    borderWidth: 2,
+    borderDash: [6, 6],
+    label: {
+      content: `Сопротивление ${i + 1} (${r.toFixed(5)})`,
+      enabled: true,
+      position: 'start',
+      backgroundColor: 'red',
+      color: 'white',
+      font: { size: 12 },
+    },
+  }));
+
+  const configuration = {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Цена Close',
+          data: closePrices,
+          borderColor: 'black',
+          backgroundColor: 'rgba(0,0,0,0.1)',
+          fill: false,
+          tension: 0.3,
+          pointRadius: 0,
+          borderWidth: 1.5,
+        },
+        {
+          label: 'SMA 5',
+          data: sma5,
+          borderColor: 'limegreen',
+          fill: false,
+          tension: 0.3,
+          pointRadius: 0,
+          borderWidth: 1.5,
+        },
+        {
+          label: 'SMA 15',
+          data: sma15,
+          borderColor: 'red',
+          fill: false,
+          tension: 0.3,
+          pointRadius: 0,
+          borderWidth: 1.5,
+        },
+      ],
+    },
+    options: {
+      responsive: false,
+      plugins: {
+        title: {
+          display: true,
+          text: `Аналитика по паре ${displayNames[pair]} — Таймфрейм: ${timeframeLabel}`,
+          font: { size: 18, weight: 'bold' },
+        },
+        legend: {
+          position: 'top',
+          labels: { font: { size: 14 } },
+        },
+        annotation: {
+          annotations: [...supportAnnotations, ...resistanceAnnotations],
+        },
+      },
+      scales: {
+        y: {
+          title: { display: true, text: 'Цена' },
+          beginAtZero: false,
+        },
+        x: {
+          title: { display: true, text: 'Время (UTC)' },
+          ticks: {
+            maxTicksLimit: 15,
+          }
+        },
+      },
+    },
+  };
+
+  return await chartJSNodeCanvas.renderToBuffer(configuration);
+}
+
 // --- Telegram Bot ---
 
 const historyData = {}; // { 'EURUSD_1m': [klines...] }
 
 bot.start((ctx) => {
   ctx.session = {};
-  ctx.reply('Привет! Выберите валютную пару:', Markup.keyboard(pairsMain.map(p => displayNames[p])).oneTime().resize());
+  // Создаём клавиатуру с 2 колонками: слева OTC, справа Main
+  // Telegram не поддерживает прямые колонки, но можно сделать 2 ряда с кнопками по 2 колонки
+  // Чтобы разделить OTC и Main, сделаем сначала OTC, потом Main в 2 колонки
+
+  // Функция для группировки массива по n элементов
+  function chunkArray(arr, size) {
+    const result = [];
+    for (let i = 0; i < arr.length; i += size) {
+      result.push(arr.slice(i, i + size));
+    }
+    return result;
+  }
+
+  const otcButtons = pairsOTC.map(p => displayNames[p]);
+  const mainButtons = pairsMain.map(p => displayNames[p]);
+
+  // Сделаем кнопки как массив массивов с 2 кнопками в строке
+  const otcKeyboard = chunkArray(otcButtons, 2);
+  const mainKeyboard = chunkArray(mainButtons, 2);
+
+  // Добавим разделитель (просто строку с текстом)
+  const keyboard = [
+    [{ text: '--- OTC пары ---', callback_data: 'ignore' }],
+    ...otcKeyboard,
+    [{ text: '--- Основные пары ---', callback_data: 'ignore' }],
+    ...mainKeyboard,
+  ];
+
+  // Telegram не поддерживает строки с текстом в ReplyKeyboardMarkup, заменим разделители на пустые строки
+  // И просто сделаем 2 блока кнопок с пустой строкой между ними
+
+  const keyboardFinal = [
+    ...otcKeyboard,
+    [''], // пустая строка для разделения
+    ...mainKeyboard,
+  ];
+
+  ctx.reply('Привет! Выберите валютную пару:', Markup.keyboard(keyboardFinal).resize().oneTime());
 });
 
-bot.hears(pairsMain.map(p => displayNames[p]), (ctx) => {
+bot.hears([...pairsMain.map(p => displayNames[p]), ...pairsOTC.map(p => displayNames[p])], (ctx) => {
   const pair = Object.entries(displayNames).find(([, name]) => name === ctx.message.text)?.[0];
   if (!pair) return ctx.reply('Пара не найдена.');
   ctx.session.pair = pair;
   ctx.reply('Выберите таймфрейм:', Markup.keyboard(timeframes.map(tf => tf.label)).oneTime().resize());
 });
 
-bot.hears(timeframes.map(tf => tf.label), (ctx) => {
+bot.hears(timeframes.map(tf => tf.label), async (ctx) => {
   const tf = timeframes.find(t => t.label === ctx.message.text);
   if (!tf) return ctx.reply('Таймфрейм не найден.');
   ctx.session.timeframe = tf;
+
+  if (!ctx.session.pair) {
+    return ctx.reply('Пожалуйста, сначала выберите валютную пару.');
+  }
+
   ctx.reply(`Начинаю анализ ${displayNames[ctx.session.pair]} на таймфрейме ${tf.label}...`);
 
-  // Генерируем данные
   const key = `${ctx.session.pair}_${tf.value}`;
   const now = Date.now();
   const klines = generateFakeOHLCFromTime(now - tf.minutes * 60 * 1000 * 100, 100, tf.minutes, ctx.session.pair);
-
-  // Сохраняем в историю
   historyData[key] = klines;
 
-  // Подготавливаем данные для индикаторов
   const closes = klines.map(k => k.close);
   const sma5 = calculateSMA(closes, 5);
   const sma15 = calculateSMA(closes, 15);
@@ -501,9 +621,17 @@ bot.hears(timeframes.map(tf => tf.label), (ctx) => {
   const stochastic = calculateStochastic(klines);
   const { supports, resistances } = findSupportResistance(klines);
 
-  // Анализ
-  const analysisText = analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances);
+  // Генерируем график
+  try {
+    const imageBuffer = await generateChartImage(klines, sma5, sma15, supports, resistances, ctx.session.pair, tf.label);
+    await ctx.replyWithPhoto({ source: imageBuffer });
+  } catch (e) {
+    console.error('Ошибка генерации графика:', e);
+    ctx.reply('Ошибка при генерации графика.');
+  }
 
+  // Анализ и рекомендации
+  const analysisText = analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances);
   ctx.reply(analysisText);
 });
 
