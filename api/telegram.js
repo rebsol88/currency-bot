@@ -322,6 +322,15 @@ async function sendPairSelection(ctx, lang) {
   await ctx.reply(text, buttons);
 }
 
+// --- Минимальный тестовый обработчик для проверки отклика ---
+bot.command('test', async (ctx) => {
+  try {
+    await ctx.reply('Тестовый ответ: бот работает!');
+  } catch (e) {
+    console.error('Ошибка в /test:', e);
+  }
+});
+
 // --- Глобальный обработчик ошибок ---
 bot.catch((err, ctx) => {
   console.error(`Глобальная ошибка для ${ctx.updateType}:`, err);
