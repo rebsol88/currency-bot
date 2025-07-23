@@ -199,7 +199,7 @@ function findSupportResistance(klines) {
   return { supports: uniqSupports, resistances: uniqResistances };
 }
 
-// --- Улучшенный анализ с подробным описанием ---
+// --- Улучшенный анализ с подробным описанием и эмодзи ---
 function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances) {
   const last = klines.length - 1;
   const price = klines[last].close;
@@ -209,41 +209,41 @@ function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports,
   // Анализ SMA
   if (sma5[last] !== null && sma15[last] !== null) {
     if (sma5[last] > sma15[last]) {
-      text += `SMA(5) выше SMA(15) — возможен восходящий тренд.\n`;
+      text += `📈 SMA(5) выше SMA(15) — возможен восходящий тренд (цена растёт).\n`;
     } else if (sma5[last] < sma15[last]) {
-      text += `SMA(5) ниже SMA(15) — возможен нисходящий тренд.\n`;
+      text += `📉 SMA(5) ниже SMA(15) — возможен нисходящий тренд (цена падает).\n`;
     } else {
-      text += `SMA(5) примерно равна SMA(15) — тренд не выражен.\n`;
+      text += `➖ SMA(5) примерно равна SMA(15) — тренд не выражен.\n`;
     }
   } else {
-    text += `Недостаточно данных для анализа SMA.\n`;
+    text += `⚠️ Недостаточно данных для анализа SMA.\n`;
   }
 
   // Анализ RSI
   if (rsi[last] !== null) {
     const rsiVal = rsi[last];
     if (rsiVal > 70) {
-      text += `RSI = ${rsiVal.toFixed(1)} — перекупленность.\n`;
+      text += `🚦 RSI = ${rsiVal.toFixed(1)} — перекупленность, возможен разворот вниз.\n`;
     } else if (rsiVal < 30) {
-      text += `RSI = ${rsiVal.toFixed(1)} — перепроданность.\n`;
+      text += `🚦 RSI = ${rsiVal.toFixed(1)} — перепроданность, возможен разворот вверх.\n`;
     } else {
-      text += `RSI = ${rsiVal.toFixed(1)} — нет явных сигналов по RSI.\n`;
+      text += `⚪ RSI = ${rsiVal.toFixed(1)} — нет явных сигналов по RSI.\n`;
     }
   } else {
-    text += `Недостаточно данных для анализа RSI.\n`;
+    text += `⚠️ Недостаточно данных для анализа RSI.\n`;
   }
 
   // Анализ MACD
   if (macd.macdLine[last] !== null && macd.signalLine[last] !== null) {
     if (macd.macdLine[last] > macd.signalLine[last]) {
-      text += `MACD — бычий сигнал.\n`;
+      text += `🐂 MACD — бычий сигнал (вероятен рост).\n`;
     } else if (macd.macdLine[last] < macd.signalLine[last]) {
-      text += `MACD — медвежий сигнал.\n`;
+      text += `🐻 MACD — медвежий сигнал (вероятно падение).\n`;
     } else {
-      text += `MACD не показывает явных сигналов.\n`;
+      text += `⚪ MACD не показывает явных сигналов.\n`;
     }
   } else {
-    text += `Недостаточно данных для анализа MACD.\n`;
+    text += `⚠️ Недостаточно данных для анализа MACD.\n`;
   }
 
   // Анализ Stochastic
@@ -252,51 +252,50 @@ function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports,
     const d = stochastic.dValues[last];
     if (k < 20) {
       if (k > d && stochastic.kValues[last - 1] <= stochastic.dValues[last - 1]) {
-        text += `Стохастик в зоне перепроданности и %K пересекает %D снизу вверх — сигнал на покупку.\n`;
+        text += `🔄 Стохастик в зоне перепроданности и %K пересекает %D снизу вверх — сигнал на покупку.\n`;
       } else {
-        text += `Стохастик в зоне перепроданности — возможен разворот.\n`;
+        text += `⚠️ Стохастик в зоне перепроданности — возможен разворот вверх.\n`;
       }
     } else if (k > 80) {
       if (k < d && stochastic.kValues[last - 1] >= stochastic.dValues[last - 1]) {
-        text += `Стохастик в зоне перекупленности и %K пересекает %D сверху вниз — сигнал на продажу.\n`;
+        text += `🔄 Стохастик в зоне перекупленности и %K пересекает %D сверху вниз — сигнал на продажу.\n`;
       } else {
-        text += `Стохастик в зоне перекупленности — возможен разворот.\n`;
+        text += `⚠️ Стохастик в зоне перекупленности — возможен разворот вниз.\n`;
       }
     } else {
       if (k > d) {
-        text += `Стохастик — бычий сигнал.\n`;
+        text += `🐂 Стохастик — бычий сигнал.\n`;
       } else if (k < d) {
-        text += `Стохастик — медвежий сигнал.\n`;
+        text += `🐻 Стохастик — медвежий сигнал.\n`;
       } else {
-        text += `Стохастик не показывает явных сигналов.\n`;
+        text += `⚪ Стохастик не показывает явных сигналов.\n`;
       }
     }
   } else {
-    text += `Недостаточно данных для анализа Стохастика.\n`;
+    text += `⚠️ Недостаточно данных для анализа Стохастика.\n`;
   }
 
-  // Поддержки и сопротивления
+  // Поддержки и сопротивления с пояснениями
   if (supports.length > 0) {
-    text += `Поддержки: ${supports.map(p => p.toFixed(5)).join(', ')}.\n`;
+    text += `🟩 Уровни поддержки (цены, где могут остановиться падения): ${supports.map(p => p.toFixed(5)).join(', ')}.\n`;
   }
   if (resistances.length > 0) {
-    text += `Сопротивления: ${resistances.map(p => p.toFixed(5)).join(', ')}.\n`;
+    text += `🟥 Уровни сопротивления (цены, где могут остановиться подъёмы): ${resistances.map(p => p.toFixed(5)).join(', ')}.\n`;
   }
 
   // Близость цены к уровням
-  const threshold = 0.0015; // допустимое отклонение для близости
+  const threshold = 0.0015; // ~0.15%
   const closeSupports = supports.filter(s => Math.abs(price - s) / s < threshold);
   const closeResistances = resistances.filter(r => Math.abs(price - r) / r < threshold);
 
   if (closeSupports.length > 0) {
-    text += `Цена близка к уровню поддержки около ${closeSupports[0].toFixed(5)}.\n`;
+    text += `🔔 Цена близка к поддержке около ${closeSupports[0].toFixed(5)} — возможен отскок вверх.\n`;
   }
   if (closeResistances.length > 0) {
-    text += `Цена близка к уровню сопротивления около ${closeResistances[0].toFixed(5)}.\n`;
+    text += `🔔 Цена близка к сопротивлению около ${closeResistances[0].toFixed(5)} — возможен откат вниз.\n`;
   }
 
   // Итоговая рекомендация
-  // Пример простой логики для рекомендации:
   const bullishSignals = [];
   const bearishSignals = [];
 
@@ -323,18 +322,18 @@ function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports,
   }
 
   if (bullishSignals.length > 0 && bearishSignals.length === 0) {
-    text += `\nРЕКОМЕНДАЦИЯ: Преобладают бычьи сигналы (${bullishSignals.join(', ')}), возможна покупка.`;
+    text += `\n✅ РЕКОМЕНДАЦИЯ: Преобладают бычьи сигналы (${bullishSignals.join(', ')}), рассмотрите возможность покупки.`;
   } else if (bearishSignals.length > 0 && bullishSignals.length === 0) {
-    text += `\nРЕКОМЕНДАЦИЯ: Преобладают медвежьи сигналы (${bearishSignals.join(', ')}), возможна продажа.`;
+    text += `\n❌ РЕКОМЕНДАЦИЯ: Преобладают медвежьи сигналы (${bearishSignals.join(', ')}), рассмотрите возможность продажи.`;
   } else {
-    text += `\nРЕКОМЕНДАЦИЯ: Рынок не определился, рекомендуем воздержаться от сделок или дождаться подтверждающих сигналов.`;
+    text += `\n⚠️ РЕКОМЕНДАЦИЯ: Рынок не определился, рекомендуем воздержаться от сделок или дождаться подтверждающих сигналов.`;
   }
 
   return text;
 }
 
 // --- Функция отрисовки графика ---
-async function drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances, timeframeMinutes) {
+async function drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances, timeframeMinutes, pairName, tfLabel) {
   const labels = klines.map(k => {
     const d = new Date(k.openTime);
     return d.toISOString().substr(11, 5);
@@ -348,7 +347,7 @@ async function drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, r
       label: 'Цена Close',
       data: closes,
       borderColor: 'black',
-      borderWidth: 1,
+      borderWidth: 2,
       fill: false,
       pointRadius: 0,
       yAxisID: 'y',
@@ -441,8 +440,12 @@ async function drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, r
       interaction: { mode: 'index', intersect: false },
       stacked: false,
       plugins: {
-        legend: { position: 'top' },
-        title: { display: true, text: 'Аналитика по выбранной паре' },
+        legend: { position: 'top', labels: { font: { size: 14 } } },
+        title: {
+          display: true,
+          text: `Аналитика по паре ${pairName} — Таймфрейм: ${tfLabel}`,
+          font: { size: 18 },
+        },
         annotation: {
           annotations: {
             ...supports.reduce((acc, price, idx) => {
@@ -451,14 +454,16 @@ async function drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, r
                 yMin: price,
                 yMax: price,
                 borderColor: 'green',
-                borderWidth: 1,
+                borderWidth: 2,
                 borderDash: [6, 4],
                 label: {
-                  content: `Поддержка ${idx + 1}`,
+                  content: `Поддержка ${idx + 1} (${price.toFixed(5)})`,
                   enabled: true,
                   position: 'start',
                   backgroundColor: 'green',
                   color: 'white',
+                  font: { size: 12 },
+                  padding: 4,
                 },
                 yScaleID: 'y',
               };
@@ -470,14 +475,16 @@ async function drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, r
                 yMin: price,
                 yMax: price,
                 borderColor: 'red',
-                borderWidth: 1,
+                borderWidth: 2,
                 borderDash: [6, 4],
                 label: {
-                  content: `Сопротивление ${idx + 1}`,
+                  content: `Сопротивление ${idx + 1} (${price.toFixed(5)})`,
                   enabled: true,
                   position: 'start',
                   backgroundColor: 'red',
                   color: 'white',
+                  font: { size: 12 },
+                  padding: 4,
                 },
                 yScaleID: 'y',
               };
@@ -491,8 +498,8 @@ async function drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, r
           type: 'linear',
           display: true,
           position: 'left',
-          title: { display: true, text: 'Цена' },
-          ticks: { beginAtZero: false },
+          title: { display: true, text: 'Цена', font: { size: 14 } },
+          ticks: { beginAtZero: false, font: { size: 12 } },
           grid: { drawOnChartArea: true },
           min: Math.min(...closes) * 0.995,
           max: Math.max(...closes) * 1.005,
@@ -501,34 +508,38 @@ async function drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, r
           type: 'linear',
           display: !isOneMinute,
           position: 'right',
-          title: { display: true, text: 'RSI' },
+          title: { display: true, text: 'RSI', font: { size: 14 } },
           min: 0,
           max: 100,
           grid: { drawOnChartArea: false },
           offset: true,
+          ticks: { font: { size: 12 } },
         },
         yMACD: {
           type: 'linear',
           display: !isOneMinute,
           position: 'right',
-          title: { display: true, text: 'MACD' },
+          title: { display: true, text: 'MACD', font: { size: 14 } },
           grid: { drawOnChartArea: false },
           offset: true,
+          ticks: { font: { size: 12 } },
         },
         yStoch: {
           type: 'linear',
           display: !isOneMinute,
           position: 'right',
-          title: { display: true, text: 'Stochastic' },
+          title: { display: true, text: 'Stochastic', font: { size: 14 } },
           min: 0,
           max: 100,
           grid: { drawOnChartArea: false },
           offset: true,
+          ticks: { font: { size: 12 } },
         },
         x: {
           display: true,
-          title: { display: true, text: 'Время (UTC)' },
-          ticks: { maxRotation: 90, minRotation: 45 },
+          title: { display: true, text: 'Время (UTC)', font: { size: 14 } },
+          ticks: { maxRotation: 90, minRotation: 45, font: { size: 10 } },
+          grid: { drawOnChartArea: false },
         },
       },
     },
@@ -560,7 +571,7 @@ bot.start(async (ctx) => {
   }
 
   await ctx.reply(
-    'Привет! Выберите валютную пару:',
+    '👋 Привет! Выберите валютную пару:',
     Markup.inlineKeyboard(keyboard)
   );
 });
@@ -584,7 +595,7 @@ bot.action(/pair_(.+)/, async (ctx) => {
     );
   } catch (error) {
     console.error('Ошибка в обработчике выбора пары:', error);
-    await ctx.reply('Произошла ошибка, попробуйте ещё раз.');
+    await ctx.reply('❗ Произошла ошибка, попробуйте ещё раз.');
   }
 });
 
@@ -606,7 +617,7 @@ bot.action(/tf_(.+)/, async (ctx) => {
     ctx.session.timeframe = tf;
 
     await ctx.answerCbQuery();
-    await ctx.editMessageText(`Генерирую данные для пары ${displayNames[ctx.session.pair] || ctx.session.pair} и таймфрейма ${tf.label}...`);
+    await ctx.editMessageText(`⏳ Генерирую данные для пары ${displayNames[ctx.session.pair] || ctx.session.pair} и таймфрейма ${tf.label}...`);
 
     const now = Date.now();
     const msPerCandle = tf.minutes * 60 * 1000;
@@ -621,7 +632,7 @@ bot.action(/tf_(.+)/, async (ctx) => {
     const closes = klines.map(k => k.close);
 
     if (klines.length < 30) {
-      await ctx.reply('Недостаточно данных для анализа (меньше 30 свечей). Попробуйте другой таймфрейм.');
+      await ctx.reply('⚠️ Недостаточно данных для анализа (меньше 30 свечей). Попробуйте другой таймфрейм.');
       return;
     }
 
@@ -632,18 +643,19 @@ bot.action(/tf_(.+)/, async (ctx) => {
     const stochastic = calculateStochastic(klines, 14, 3);
     const { supports, resistances } = findSupportResistance(klines);
 
-    const chartBuffer = await drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances, tf.minutes);
+    const chartBuffer = await drawChart(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances, tf.minutes, displayNames[ctx.session.pair] || ctx.session.pair, tf.label);
 
     const analysisText = analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances);
 
     await ctx.replyWithPhoto({ source: chartBuffer }, {
-      caption: `Валютная пара: ${displayNames[ctx.session.pair] || ctx.session.pair}\nТаймфрейм: ${tf.label}\n\nАнализ и рекомендации:\n${analysisText}`
+      caption: `📊 *Валютная пара:* ${displayNames[ctx.session.pair] || ctx.session.pair}\n⏰ *Таймфрейм:* ${tf.label}\n\n📝 *Анализ и рекомендации:*\n${analysisText}`,
+      parse_mode: 'Markdown'
     });
 
-    await ctx.reply('Для нового запроса используйте /start');
+    await ctx.reply('🔄 Для нового запроса используйте /start');
   } catch (error) {
     console.error('Ошибка в обработчике таймфрейма:', error);
-    await ctx.reply('Произошла ошибка при генерации данных, попробуйте ещё раз.');
+    await ctx.reply('❗ Произошла ошибка при генерации данных, попробуйте ещё раз.');
   }
 });
 
