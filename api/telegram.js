@@ -7,7 +7,7 @@ import annotationPlugin from 'chartjs-plugin-annotation';
 const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
 const bot = new Telegraf(BOT_TOKEN);
 
-// Подключаем session middleware
+// Подключаем session middleware — обязательно до всех хендлеров
 bot.use(session());
 
 // Гарантируем, что ctx.session всегда объект
@@ -52,7 +52,7 @@ function generateLicenseKey() {
   return key;
 }
 
-// --- Ваши существующие данные, функции и настройки ---
+// --- Языковые данные ---
 const languages = {
   ru: {
     texts: {
