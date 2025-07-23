@@ -95,7 +95,6 @@ const languages = {
     }
   },
 };
-// ... остальной ваш код (displayNames, генерация OHLC, индикаторы и т.д.) ...
 
 // --- Обработчик команды /start ---
 bot.start(async (ctx) => {
@@ -103,7 +102,7 @@ bot.start(async (ctx) => {
   ctx.session.authorized = false;
   ctx.session.lang = null;
 
-  const chooseLangText = languages.ru.texts.choose_lang; // Можно сделать мультиязычное приветствие
+  const chooseLangText = languages.ru.texts.choose_lang;
 
   await ctx.reply(chooseLangText, Markup.inlineKeyboard([
     Markup.button.callback('Русский 🇷🇺', 'lang_ru'),
@@ -121,7 +120,6 @@ bot.action(/lang_(.+)/, async (ctx) => {
   }
   ctx.session.lang = lang;
 
-  // Админу не нужно вводить ключ, сразу авторизуем
   if (isAdmin(ctx)) {
     ctx.session.authorized = true;
   } else {
@@ -131,11 +129,10 @@ bot.action(/lang_(.+)/, async (ctx) => {
   await ctx.answerCbQuery();
 
   const prompt = isAdmin(ctx)
-    ? (languages[lang].texts.key_accepted + '\n' + (typeof sendPairSelection === 'function' ? '' : ''))
+    ? (languages[lang].texts.key_accepted)
     : languages[lang].texts.enter_key;
 
-  // Если админ - сразу предложим выбор пары
-  if (isAdmin(ctx) && typeof sendPairSelection === 'function') {
+  if (isAdmin(ctx)) {
     await sendPairSelection(ctx, lang);
   } else {
     await ctx.editMessageText(prompt);
@@ -148,10 +145,8 @@ bot.on('text', async (ctx) => {
   const lang = ctx.session.lang || 'ru';
   const texts = languages[lang].texts;
 
-  // Если админ — сразу авторизован, пропускаем проверку ключа
   if (isAdmin(ctx)) {
     if (!ctx.session.authorized) ctx.session.authorized = true;
-    // Можно обработать сообщения админа, если нужно, или пропустить
     return;
   }
 
@@ -165,12 +160,10 @@ bot.on('text', async (ctx) => {
 
       await ctx.reply(texts.key_accepted);
 
-      // Предлагаем выбор пары (пример, нужно реализовать sendPairSelection)
       if (typeof sendPairSelection === 'function') {
         await sendPairSelection(ctx, lang);
       }
     } else if (licenseKeys[inputKey] && licenseKeys[inputKey].userId === ctx.from.id) {
-      // Пользователь уже активировал этот ключ
       ctx.session.authorized = true;
       await ctx.reply(texts.key_already_used);
 
@@ -183,7 +176,6 @@ bot.on('text', async (ctx) => {
     return;
   }
 
-  // Если пользователь авторизован — можно обрабатывать сообщения или игнорировать
   await ctx.reply(texts.use_buttons);
 });
 
@@ -216,11 +208,13 @@ bot.command('genkey', async (ctx) => {
     let key;
     do {
       key = generateLicenseKey();
-    } while (licenseKeys[key]); // избегаем дубликатов
+    } while (licenseKeys[key]);
 
     licenseKeys[key] = { used: false, userId: null };
     newKeys.push(key);
   }
+
+  console.log('Сгенерированы ключи:', newKeys);
 
   await ctx.reply(texts.keys_generated(newKeys));
 });
@@ -275,9 +269,7 @@ bot.command('delkey', async (ctx) => {
 });
 
 // --- Заглушка для sendPairSelection ---
-// Реализуйте эту функцию по вашему сценарию
 async function sendPairSelection(ctx, lang) {
-  // Пример: отправить сообщение с выбором валютной пары
   const text = lang === 'ru' ? 'Выберите валютную пару:' : 'Please choose a currency pair:';
   const buttons = Markup.inlineKeyboard([
     Markup.button.callback('BTC/USD', 'pair_btcusd'),
@@ -286,9 +278,6 @@ async function sendPairSelection(ctx, lang) {
   await ctx.reply(text, buttons);
 }
 
-// --- Остальной ваш код (displayNames, генерация OHLC, индикаторы и т.д.) ---
-
-// ... (оставьте без изменений) ...
-
+// --- Запуск бота ---
 bot.launch();
 console.log('Бот запущен и готов к работе');
