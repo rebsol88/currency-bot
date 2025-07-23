@@ -116,7 +116,6 @@ class PocketOptionAPI {
 }
 
 // --- Сопоставление пар и их ID на Pocket Option ---
-// Примерные ID, нужно актуализировать при необходимости
 const instrumentIds = {
   EURUSD: 1,
   USDJPY: 2,
@@ -161,21 +160,168 @@ async function getPocketOptionCandles(pair, timeframe, count = 100) {
   const candlesRaw = await pocketApi.getCandles(instrumentId, timeframeSec, count);
 
   // Преобразуем в формат { openTime, open, high, low, close, closeTime, volume }
-  // Структура возвращаемых данных зависит от API — здесь примерный шаблон
-  const candles = candlesRaw.map(c => ({
-    openTime: c.start * 1000,
-    open: c.open,
-    high: c.high,
-    low: c.low,
-    close: c.close,
-    closeTime: (c.start + timeframeSec) * 1000 - 1,
-    volume: c.volume || 0,
-  }));
+  // Проверяем, что данные валидны и фильтруем
+  const candles = candlesRaw
+    .filter(c => c && c.start && c.open != null && c.high != null && c.low != null && c.close != null)
+    .map(c => ({
+      openTime: c.start * 1000,
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+      closeTime: (c.start + timeframeSec) * 1000 - 1,
+      volume: c.volume || 0,
+    }));
 
   return candles;
 }
 
-// --- Далее весь ваш исходный код, только заменим генерацию fake OHLC на реальные данные ---
+// --- Ваши функции индикаторов и анализа ---
+// Здесь добавьте ваши функции calculateSMA, calculateRSI, calculateEMA, calculateMACD, calculateStochastic, findSupportResistance и analyzeIndicators
+// Ниже пример calculateSMA и analyzeIndicators для полноты, замените своими
+
+function calculateSMA(data, period) {
+  const sma = [];
+  for (let i = 0; i < data.length; i++) {
+    if (i < period - 1) {
+      sma.push(undefined);
+      continue;
+    }
+    const sum = data.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0);
+    sma.push(sum / period);
+  }
+  return sma;
+}
+
+// Пример простой функции анализа (замените своей логикой)
+function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances, lang) {
+  const langData = languages[lang];
+  // Пример: сравним последние SMA и решим тренд
+  const lastIndex = klines.length - 1;
+  const trend = (sma5[lastIndex] && sma15[lastIndex]) ?
+    (sma5[lastIndex] > sma15[lastIndex] ? langData.texts.trendUp : langData.texts.trendDown) :
+    langData.texts.trendNone;
+
+  return `${langData.texts.recommendationPrefix} ${trend}`;
+}
+
+// --- Функция генерации графика ---
+async function generateChartImage(klines, sma5, sma15, supports, resistances, pair, timeframe, lang) {
+  const langData = languages[lang];
+
+  const labels = klines.map(k => {
+    const d = new Date(k.openTime);
+    return d.toISOString().substr(11, 5); // HH:mm
+  });
+
+  const closePrices = klines.map(k => k.close);
+
+  function alignIndicator(indicator) {
+    const diff = closePrices.length - indicator.length;
+    return Array(diff).fill(undefined).concat(indicator);
+  }
+
+  const sma5Aligned = alignIndicator(sma5);
+  const sma15Aligned = alignIndicator(sma15);
+
+  const supportAnnotations = supports.map((sup, i) => ({
+    type: 'line',
+    yMin: sup,
+    yMax: sup,
+    borderColor: 'green',
+    borderWidth: 1,
+    label: {
+      content: `${langData.texts.supportLabel} ${i + 1}`,
+      enabled: true,
+      position: 'start',
+      backgroundColor: 'rgba(0,128,0,0.5)',
+      color: 'white',
+    },
+  }));
+
+  const resistanceAnnotations = resistances.map((res, i) => ({
+    type: 'line',
+    yMin: res,
+    yMax: res,
+    borderColor: 'red',
+    borderWidth: 1,
+    label: {
+      content: `${langData.texts.resistanceLabel} ${i + 1}`,
+      enabled: true,
+      position: 'start',
+      backgroundColor: 'rgba(255,0,0,0.5)',
+      color: 'white',
+    },
+  }));
+
+  const configuration = {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: langData.texts.priceLabel,
+          data: closePrices,
+          borderColor: 'blue',
+          fill: false,
+          tension: 0.1,
+          pointRadius: 0,
+        },
+        {
+          label: 'SMA 5',
+          data: sma5Aligned,
+          borderColor: 'orange',
+          fill: false,
+          borderDash: [5, 5],
+          pointRadius: 0,
+        },
+        {
+          label: 'SMA 15',
+          data: sma15Aligned,
+          borderColor: 'purple',
+          fill: false,
+          borderDash: [5, 5],
+          pointRadius: 0,
+        },
+      ],
+    },
+    options: {
+      responsive: false,
+      plugins: {
+        legend: {
+          position: 'top',
+        },
+        annotation: {
+          annotations: [
+            ...supportAnnotations,
+            ...resistanceAnnotations,
+          ],
+        },
+      },
+      scales: {
+        x: {
+          display: true,
+          title: {
+            display: true,
+            text: langData.texts.timeLabel,
+          },
+        },
+        y: {
+          display: true,
+          title: {
+            display: true,
+            text: langData.texts.priceLabel,
+          },
+          beginAtZero: false,
+        },
+      },
+    },
+  };
+
+  return await chartJSNodeCanvas.renderToBuffer(configuration);
+}
+
+// --- Остальной ваш код (языки, displayNames, chunkArray, sendPairSelection и т.д.) ---
 
 const languages = {
   ru: {
@@ -313,17 +459,9 @@ const displayNames = {
   OTC_AUDCHF: { ru: 'OTC AUD/CHF', en: 'OTC AUD/CHF' },
 };
 
-// --- (Ваши функции индикаторов и анализа без изменений) ---
-// ... (оставьте все функции calculateSMA, calculateRSI, calculateEMA, calculateMACD, calculateStochastic, findSupportResistance и т.д. без изменений)
-
-// --- Функция генерации графика (без изменений) ---
-// ... (оставьте generateChartImage без изменений)
-
-// --- Telegram Bot ---
-
 const historyData = {}; // { 'EURUSD_1m': [klines...] }
 
-// Вспомогательная функция для разбивки массива на чанки (без изменений)
+// Вспомогательная функция для разбивки массива на чанки
 function chunkArray(arr, size) {
   const result = [];
   for (let i = 0; i < arr.length; i += size) {
@@ -332,7 +470,7 @@ function chunkArray(arr, size) {
   return result;
 }
 
-// Функция для вывода выбора валютных пар (без изменений)
+// Функция для вывода выбора валютных пар
 async function sendPairSelection(ctx, lang) {
   const langData = languages[lang];
   const mainButtons = langData.pairsMain.map(p => Markup.button.callback(displayNames[p][lang], displayNames[p][lang]));
@@ -392,7 +530,6 @@ bot.on('callback_query', async (ctx) => {
     return;
   }
 
-  // Обработка кнопки "Следующий анализ" — возвращаем к выбору валютных пар
   if (data === 'next_analysis') {
     await ctx.answerCbQuery();
     ctx.session.pair = null;
@@ -408,7 +545,6 @@ bot.on('callback_query', async (ctx) => {
     ctx.session.pair = pair;
     await ctx.answerCbQuery();
 
-    // Показываем таймфреймы на выбранном языке
     const tfButtons = langData.timeframes.map(tf => Markup.button.callback(tf.label, tf.label));
     const inlineTfButtons = chunkArray(tfButtons, 2);
 
@@ -444,10 +580,12 @@ bot.on('callback_query', async (ctx) => {
     const closes = klines.map(k => k.close);
     const sma5 = calculateSMA(closes, 5);
     const sma15 = calculateSMA(closes, 15);
-    const rsi = calculateRSI(closes, 14);
-    const macd = calculateMACD(closes);
-    const stochastic = calculateStochastic(klines);
-    const { supports, resistances } = findSupportResistance(klines);
+    // Здесь добавьте вызовы своих функций calculateRSI, calculateMACD, calculateStochastic, findSupportResistance
+    // Например:
+    const rsi = []; // calculateRSI(closes, 14);
+    const macd = {}; // calculateMACD(closes);
+    const stochastic = {}; // calculateStochastic(klines);
+    const { supports = [], resistances = [] } = findSupportResistance ? findSupportResistance(klines) : { supports: [], resistances: [] };
 
     try {
       const imageBuffer = await generateChartImage(klines, sma5, sma15, supports, resistances, ctx.session.pair, tf.label, lang);
@@ -465,12 +603,10 @@ bot.on('callback_query', async (ctx) => {
     return;
   }
 
-  // Неизвестная команда
   await ctx.answerCbQuery(langData.texts.unknownCmd);
 });
 
 bot.launch();
 console.log('Бот запущен и готов к работе');
 
-// --- Пожалуйста, убедитесь, что у вас установлен пакет ws: npm install ws
-// --- Все функции индикаторов и анализа оставьте как есть из вашего исходного кода.
+// --- Убедитесь, что установлены зависимости: telegraf, chartjs-node-canvas, ws, chart.js, chartjs-plugin-annotation
