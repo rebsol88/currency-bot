@@ -165,7 +165,7 @@ bot.on('text', async (ctx) => {
 
     if (isAdmin(ctx)) {
       if (!ctx.session.authorized) ctx.session.authorized = true;
-      // Админу можно отвечать, если нужно
+      // Админ может пользоваться ботом сразу
       return;
     }
 
@@ -340,6 +340,10 @@ bot.catch((err, ctx) => {
 });
 
 // --- Запуск бота ---
-bot.launch()
-  .then(() => console.log('Бот запущен и готов к работе'))
-  .catch(e => console.error('Ошибка запуска бота:', e));
+bot.launch({
+  // polling: true, // Polling по умолчанию
+}).then(() => {
+  console.log('Бот запущен и готов к работе');
+}).catch(e => {
+  console.error('Ошибка запуска бота:', e);
+});
