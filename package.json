@@ -12,5 +12,8 @@
   },
   "scripts": {
     "start": "node telegram.js"
+  },
+  "engines": {
+    "node": "18.x"
   }
 }
