@@ -28,7 +28,7 @@ const chartJSNodeCanvas = new ChartJSNodeCanvas({
 });
 
 // --- Администраторы ---
-const admins = [123456789, 987654321, 6824399168, 316971294]; // Добавлен новый админ
+const admins = [6824399168, 316971294]; // Добавлен новый админ
 
 function isAdmin(ctx) {
   return admins.includes(ctx.from.id);
