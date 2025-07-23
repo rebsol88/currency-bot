@@ -66,6 +66,7 @@ const languages = {
       breakoutResistance: 'Пробой и ретест сопротивления с подтверждением — сильный сигнал к продаже.',
       buySignal: 'Сигнал на покупку',
       sellSignal: 'Сигнал на продажу',
+      nextAnalysis: 'Следующий анализ',
     },
   },
   en: {
@@ -114,6 +115,7 @@ const languages = {
       breakoutResistance: 'Breakout and retest of resistance confirmed — strong sell signal.',
       buySignal: 'Buy signal',
       sellSignal: 'Sell signal',
+      nextAnalysis: 'Next analysis',
     },
   },
 };
@@ -768,6 +770,44 @@ bot.on('callback_query', async (ctx) => {
     return;
   }
 
+  // Обработка кнопки "Следующий анализ"
+  if (data === 'next_analysis') {
+    if (!ctx.session.pair || !ctx.session.timeframe) {
+      await ctx.answerCbQuery(langData.texts.pleaseChoosePairFirst);
+      return;
+    }
+    await ctx.answerCbQuery();
+    await ctx.editMessageText(langData.texts.analysisStarting(displayNames[ctx.session.pair][lang], ctx.session.timeframe.label));
+
+    const key = `${ctx.session.pair}_${ctx.session.timeframe.value}`;
+    const now = Date.now();
+    const klines = generateFakeOHLCFromTime(now - ctx.session.timeframe.minutes * 60 * 1000 * 100, 100, ctx.session.timeframe.minutes, ctx.session.pair);
+    historyData[key] = klines;
+
+    const closes = klines.map(k => k.close);
+    const sma5 = calculateSMA(closes, 5);
+    const sma15 = calculateSMA(closes, 15);
+    const rsi = calculateRSI(closes, 14);
+    const macd = calculateMACD(closes);
+    const stochastic = calculateStochastic(klines);
+    const { supports, resistances } = findSupportResistance(klines);
+
+    try {
+      const imageBuffer = await generateChartImage(klines, sma5, sma15, supports, resistances, ctx.session.pair, ctx.session.timeframe.label, lang);
+      await ctx.replyWithPhoto({ source: imageBuffer });
+    } catch (e) {
+      console.error('Ошибка генерации графика:', e);
+      await ctx.reply(langData.texts.errorGeneratingChart);
+    }
+
+    const analysisText = analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances, lang);
+    // Добавляем кнопку "Следующий анализ" под текстом анализа
+    await ctx.reply(analysisText, Markup.inlineKeyboard([
+      Markup.button.callback(langData.texts.nextAnalysis, 'next_analysis')
+    ]));
+    return;
+  }
+
   // Проверим, является ли data валютной парой
   const pairEntry = Object.entries(displayNames).find(([, names]) => names[lang] === data);
   if (pairEntry) {
@@ -817,9 +857,11 @@ bot.on('callback_query', async (ctx) => {
     }
 
     const analysisText = analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances, lang);
-    await ctx.reply(analysisText);
+    // Добавляем кнопку "Следующий анализ" под текстом анализа
+    await ctx.reply(analysisText, Markup.inlineKeyboard([
+      Markup.button.callback(langData.texts.nextAnalysis, 'next_analysis')
+    ]));
 
-    ctx.session = {};
     return;
   }
 
