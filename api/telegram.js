@@ -713,29 +713,9 @@ function chunkArray(arr, size) {
   return result;
 }
 
-// /start — выбор языка
-bot.start(async (ctx) => {
-  ctx.session = {};
-  const buttons = [
-    Markup.button.callback(languages.ru.name, 'lang_ru'),
-    Markup.button.callback(languages.en.name, 'lang_en'),
-  ];
-  await ctx.reply(languages.ru.texts.chooseLanguage, Markup.inlineKeyboard(buttons));
-});
-
-// Обработка выбора языка
-bot.action(/lang_(.+)/, async (ctx) => {
-  const lang = ctx.match[1];
-  if (!languages[lang]) {
-    await ctx.answerCbQuery('Unsupported language');
-    return;
-  }
-  ctx.session.lang = lang;
-  await ctx.answerCbQuery();
-
+// Функция для вывода выбора валютных пар (используется при старте и при "Следующий анализ")
+async function sendPairSelection(ctx, lang) {
   const langData = languages[lang];
-
-  // Формируем кнопки валютных пар с учётом языка
   const mainButtons = langData.pairsMain.map(p => Markup.button.callback(displayNames[p][lang], displayNames[p][lang]));
   const otcButtons = langData.pairsOTC.map(p => Markup.button.callback(displayNames[p][lang], displayNames[p][lang]));
 
@@ -757,6 +737,29 @@ bot.action(/lang_(.+)/, async (ctx) => {
   }
 
   await ctx.editMessageText(langData.texts.choosePair, Markup.inlineKeyboard(keyboardFinal));
+}
+
+// /start — выбор языка
+bot.start(async (ctx) => {
+  ctx.session = {};
+  const buttons = [
+    Markup.button.callback(languages.ru.name, 'lang_ru'),
+    Markup.button.callback(languages.en.name, 'lang_en'),
+  ];
+  await ctx.reply(languages.ru.texts.chooseLanguage, Markup.inlineKeyboard(buttons));
+});
+
+// Обработка выбора языка
+bot.action(/lang_(.+)/, async (ctx) => {
+  const lang = ctx.match[1];
+  if (!languages[lang]) {
+    await ctx.answerCbQuery('Unsupported language');
+    return;
+  }
+  ctx.session.lang = lang;
+  await ctx.answerCbQuery();
+
+  await sendPairSelection(ctx, lang);
 });
 
 // Обработка нажатий inline кнопок с валютными парами и таймфреймами
@@ -770,41 +773,13 @@ bot.on('callback_query', async (ctx) => {
     return;
   }
 
-  // Обработка кнопки "Следующий анализ"
+  // Обработка кнопки "Следующий анализ" — возвращаем к выбору валютных пар
   if (data === 'next_analysis') {
-    if (!ctx.session.pair || !ctx.session.timeframe) {
-      await ctx.answerCbQuery(langData.texts.pleaseChoosePairFirst);
-      return;
-    }
     await ctx.answerCbQuery();
-    await ctx.editMessageText(langData.texts.analysisStarting(displayNames[ctx.session.pair][lang], ctx.session.timeframe.label));
-
-    const key = `${ctx.session.pair}_${ctx.session.timeframe.value}`;
-    const now = Date.now();
-    const klines = generateFakeOHLCFromTime(now - ctx.session.timeframe.minutes * 60 * 1000 * 100, 100, ctx.session.timeframe.minutes, ctx.session.pair);
-    historyData[key] = klines;
-
-    const closes = klines.map(k => k.close);
-    const sma5 = calculateSMA(closes, 5);
-    const sma15 = calculateSMA(closes, 15);
-    const rsi = calculateRSI(closes, 14);
-    const macd = calculateMACD(closes);
-    const stochastic = calculateStochastic(klines);
-    const { supports, resistances } = findSupportResistance(klines);
-
-    try {
-      const imageBuffer = await generateChartImage(klines, sma5, sma15, supports, resistances, ctx.session.pair, ctx.session.timeframe.label, lang);
-      await ctx.replyWithPhoto({ source: imageBuffer });
-    } catch (e) {
-      console.error('Ошибка генерации графика:', e);
-      await ctx.reply(langData.texts.errorGeneratingChart);
-    }
-
-    const analysisText = analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances, lang);
-    // Добавляем кнопку "Следующий анализ" под текстом анализа
-    await ctx.reply(analysisText, Markup.inlineKeyboard([
-      Markup.button.callback(langData.texts.nextAnalysis, 'next_analysis')
-    ]));
+    // Очистим выбор пары и таймфрейма, чтобы пользователь мог выбрать заново
+    ctx.session.pair = null;
+    ctx.session.timeframe = null;
+    await sendPairSelection(ctx, lang);
     return;
   }
 
@@ -857,7 +832,7 @@ bot.on('callback_query', async (ctx) => {
     }
 
     const analysisText = analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances, lang);
-    // Добавляем кнопку "Следующий анализ" под текстом анализа
+    // Добавляем кнопку "Следующий анализ" под текстом анализа (которая теперь возвращает к выбору пары)
     await ctx.reply(analysisText, Markup.inlineKeyboard([
       Markup.button.callback(langData.texts.nextAnalysis, 'next_analysis')
     ]));
