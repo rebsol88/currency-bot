@@ -550,4 +550,81 @@ function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports,
       }
     } else if (k > 80) {
       if (kPrev !== null && dPrev !== null && k < d && kPrev >= dPrev) {
-        text += `🔄 Стохастик ${lang === 'ru' ? 'в зоне перекупленности с пересечением %K сверху вниз — сигнал на продажу.' : 'in overbought
+        text += `🔄 Стохастик ${lang === 'ru' ? 'в зоне перекупленности с пересечением %K сверху вниз — сигнал на продажу.' : 'in overbought zone with %K crossing down — sell signal.'}\n`;
+      } else {
+        text += `⚠️ Стохастик ${lang === 'ru' ? 'в зоне перекупленности.' : 'in overbought zone.'}\n`;
+      }
+    } else {
+      text += `⚪ Стохастик в нейтральной зоне (K: ${k.toFixed(1)}, D: ${d.toFixed(1)}).\n`;
+    }
+  } else {
+    text += `⚠️ ${lang === 'ru' ? 'Недостаточно данных для анализа стохастика.' : 'Not enough data to analyze Stochastic.'}\n`;
+  }
+
+  // Объём
+  if (isVolumeDecreasing(volume, prevVolume)) {
+    text += `📉 ${texts.volumeDecreasing}\n`;
+  } else {
+    text += `📊 ${texts.volumeIncreasing}\n`;
+  }
+
+  // Свечные паттерны
+  const candlePattern = detectCandlePattern(candle, lang);
+  if (candlePattern) {
+    text += `🕯️ ${texts.candlePatternDetected}: ${candlePattern}.\n`;
+  }
+
+  // Дивергенция RSI
+  const divergence = detectRSIDivergence(prevPrice, prevRSI, price, rsi[last], lang);
+  if (divergence) {
+    text += `🔄 ${texts.divergenceDetected}: ${divergence}\n`;
+  }
+
+  // Уровни поддержки и сопротивления
+  if (supports.length > 0) {
+    const closestSupport = supports[supports.length - 1];
+    if (price < closestSupport * 1.02) {
+      text += `🟢 ${texts.closeToSupport} ${closestSupport.toFixed(5)}.\n`;
+    }
+  }
+  if (resistances.length > 0) {
+    const closestResistance = resistances[0];
+    if (price > closestResistance * 0.98) {
+      text += `🔴 ${texts.closeToResistance} ${closestResistance.toFixed(5)}.\n`;
+    }
+  }
+
+  // Пробой с ретестом
+  const last3Prices = klines.slice(-3).map(k => k.close);
+  if (supports.length > 0) {
+    const closestSupport = supports[supports.length - 1];
+    if (checkBreakoutWithRetest(last3Prices, closestSupport, true)) {
+      text += `📈 ${texts.breakoutSupport}\n`;
+    }
+  }
+  if (resistances.length > 0) {
+    const closestResistance = resistances[0];
+    if (checkBreakoutWithRetest(last3Prices, closestResistance, false)) {
+      text += `📉 ${texts.breakoutResistance}\n`;
+    }
+  }
+
+  // Рекомендация
+  text += `\n${generateDetailedRecommendation(price, sma5[last], rsi[last], candlePattern, lang)}`;
+
+  return text;
+}
+
+// Запуск бота (заглушка, так как код для взаимодействия с Telegram не полный в исходном сообщении)
+bot.start((ctx) => {
+  ctx.reply('Welcome! Choose your language:', Markup.inlineKeyboard([
+    Markup.button.callback('Русский', 'lang_ru'),
+    Markup.button.callback('English', 'lang_en')
+  ]));
+});
+
+bot.launch().then(() => {
+  console.log('Bot started');
+}).catch(err => {
+  console.error('Failed to start bot:', err);
+});
