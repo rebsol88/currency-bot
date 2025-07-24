@@ -2,10 +2,11 @@
   "name": "currency-bot",
   "version": "1.0.0",
   "main": "index.js",
+  "type": "module",
   "engines": {
     "node": "22.x"
   },
   "dependencies": {
-    
+    "pocketoption-api-js": "git+https://github.com/StanTOP/PocketOptionApiJs.git"
   }
 }
