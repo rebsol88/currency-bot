@@ -1,6 +1,6 @@
 import { Telegraf, Markup, session } from 'telegraf';
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
-import Chart from 'chart.js/auto/auto.js';
+import Chart from 'chart.js/auto'; // исправлено
 import annotationPlugin from 'chartjs-plugin-annotation';
 import { PocketOptionApi } from 'pocketoption-api-js'; // https://github.com/StanTOP/PocketOptionApiJs
 
@@ -30,10 +30,6 @@ const poApi = new PocketOptionApi({
 });
 
 // --- Языковые данные, пары, OTC, timeframes и прочее ---
-// Ниже вставьте весь ваш существующий код с languages, displayNames, генерацией OHLC,
-// индикаторами, анализом и функциями генерации графика без изменений.
-
-// --- Пример языковых данных и пар (вставьте ваш полный блок) ---
 const languages = {
   ru: {
     name: 'Русский',
