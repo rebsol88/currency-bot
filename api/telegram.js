@@ -1,6 +1,6 @@
 import { Telegraf, Markup, session } from 'telegraf';
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
-import Chart from 'chart.js/auto'; // Исправленный импорт для устранения ошибки ERR_PACKAGE_PATH_NOT_EXPORTED
+import Chart from 'chart.js/auto';
 import annotationPlugin from 'chartjs-plugin-annotation';
 import axios from 'axios';
 
@@ -159,9 +159,6 @@ const displayNames = {
 // --- Получение реальных данных через Binance API (или другого провайдера) ---
 async function fetchRealOHLC(pair, timeframe, limit = 100) {
   try {
-    // Binance не предоставляет данные для форекс-пар напрямую, поэтому для примера используем крипто-пары
-    // Для форекс нужно подключиться к другому API, например, Alpha Vantage или Yahoo Finance
-    // Здесь я оставлю заглушку для реального API
     const symbol = pair.replace('/', ''); // Например, EURUSD -> EURUSD (нужно адаптировать под API)
     const interval = timeframe.value;
     const response = await axios.get(`https://api.binance.com/api/v3/klines`, {
@@ -200,13 +197,13 @@ function generateFakeOHLCFromTime(startTimeMs, count, intervalMinutes, pair) {
   const basePrice = getBasePrice(pair);
   let price = basePrice;
 
-  const volatility = pair.startsWith('OTC_') ? 0.005 : 0.0018; // Увеличиваем волатильность для OTC
+  const volatility = pair.startsWith('OTC_') ? 0.005 : 0.0018;
   const data = [];
   let time = startTimeMs;
 
   for (let i = 0; i < count; i++) {
     const trend = Math.sin(i / 10) * volatility * 0.5;
-    const randChange = (Math.random() - 0.5) * volatility * 1.5; // Более резкие изменения для OTC
+    const randChange = (Math.random() - 0.5) * volatility * 1.5;
     const open = price;
     price = Math.max(0.01, price + trend + randChange);
     const close = price;
@@ -615,14 +612,196 @@ function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports,
   return text;
 }
 
-// Запуск бота (заглушка, так как код для взаимодействия с Telegram не полный в исходном сообщении)
+// --- Генерация графика ---
+async function generateChart(klines, sma5, sma15, supports, resistances, lang) {
+  const labels = klines.map(k => new Date(k.openTime).toLocaleTimeString());
+  const closePrices = klines.map(k => k.close);
+
+  const configuration = {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: languages[lang].texts.priceLabel,
+          data: closePrices,
+          borderColor: 'rgba(75, 192, 192, 1)',
+          backgroundColor: 'rgba(75, 192, 192, 0.2)',
+          fill: false,
+        },
+        {
+          label: 'SMA(5)',
+          data: sma5,
+          borderColor: 'rgba(255, 99, 132, 1)',
+          backgroundColor: 'rgba(255, 99, 132, 0.2)',
+          fill: false,
+        },
+        {
+          label: 'SMA(15)',
+          data: sma15,
+          borderColor: 'rgba(54, 162, 235, 1)',
+          backgroundColor: 'rgba(54, 162, 235, 0.2)',
+          fill: false,
+        },
+      ],
+    },
+    options: {
+      responsive: false,
+      scales: {
+        x: {
+          title: { display: true, text: languages[lang].texts.timeLabel },
+        },
+        y: {
+          title: { display: true, text: languages[lang].texts.priceLabel },
+        },
+      },
+      plugins: {
+        annotation: {
+          annotations: [
+            ...supports.map((s, i) => ({
+              type: 'line',
+              mode: 'horizontal',
+              scaleID: 'y',
+              value: s,
+              borderColor: 'rgba(0, 255, 0, 0.5)',
+              borderWidth: 2,
+              label: { content: `${languages[lang].texts.supportLabel} ${i + 1}`, enabled: true, position: 'right' },
+            })),
+            ...resistances.map((r, i) => ({
+              type: 'line',
+              mode: 'horizontal',
+              scaleID: 'y',
+              value: r,
+              borderColor: 'rgba(255, 0, 0, 0.5)',
+              borderWidth: 2,
+              label: { content: `${languages[lang].texts.resistanceLabel} ${i + 1}`, enabled: true, position: 'right' },
+            })),
+          ],
+        },
+      },
+    },
+  };
+
+  try {
+    const buffer = await chartJSNodeCanvas.renderToBuffer(configuration);
+    return buffer;
+  } catch (error) {
+    console.error('Ошибка генерации графика:', error);
+    return null;
+  }
+}
+
+// --- Логика бота ---
 bot.start((ctx) => {
-  ctx.reply('Welcome! Choose your language:', Markup.inlineKeyboard([
+  ctx.session = ctx.session || {};
+  ctx.reply(languages.en.texts.chooseLanguage, Markup.inlineKeyboard([
     Markup.button.callback('Русский', 'lang_ru'),
     Markup.button.callback('English', 'lang_en')
   ]));
 });
 
+// Обработка выбора языка
+bot.action(/lang_(.+)/, (ctx) => {
+  const lang = ctx.match[1];
+  ctx.session.lang = lang;
+  ctx.editMessageText(languages[lang].texts.choosePair, Markup.inlineKeyboard(
+    languages[lang].pairsMain.map(pair => [
+      Markup.button.callback(displayNames[pair][lang], `pair_${pair}`)
+    ])
+  ));
+});
+
+// Обработка выбора пары
+bot.action(/pair_(.+)/, (ctx) => {
+  const pair = ctx.match[1];
+  ctx.session.pair = pair;
+  const lang = ctx.session.lang || 'en';
+  ctx.editMessageText(languages[lang].texts.chooseTimeframe, Markup.inlineKeyboard(
+    languages[lang].timeframes.map(tf => [
+      Markup.button.callback(tf.label, `tf_${tf.value}`)
+    ])
+  ));
+});
+
+// Обработка выбора таймфрейма и выполнение анализа
+bot.action(/tf_(.+)/, async (ctx) => {
+  const timeframeValue = ctx.match[1];
+  const lang = ctx.session.lang || 'en';
+  const pair = ctx.session.pair;
+  if (!pair) {
+    ctx.reply(languages[lang].texts.pleaseChoosePairFirst);
+    return;
+  }
+
+  const timeframe = languages[lang].timeframes.find(tf => tf.value === timeframeValue);
+  ctx.editMessageText(languages[lang].texts.analysisStarting(pair, timeframe.label));
+
+  // Получение данных
+  let klines;
+  if (pair.startsWith('OTC_')) {
+    const startTime = Date.now() - 100 * timeframe.minutes * 60 * 1000;
+    klines = generateFakeOHLCFromTime(startTime, 100, timeframe.minutes, pair);
+  } else {
+    klines = await fetchRealOHLC(pair, timeframe);
+    if (!klines) {
+      klines = generateFakeOHLCFromTime(Date.now() - 100 * timeframe.minutes * 60 * 1000, 100, timeframe.minutes, pair);
+    }
+  }
+
+  // Расчёт индикаторов
+  const closePrices = klines.map(k => k.close);
+  const sma5 = calculateSMA(closePrices, 5);
+  const sma15 = calculateSMA(closePrices, 15);
+  const rsi = calculateRSI(closePrices, 14);
+  const macd = calculateMACD(closePrices);
+  const stochastic = calculateStochastic(klines);
+  const { supports, resistances } = findSupportResistance(klines);
+
+  // Анализ
+  const analysisText = analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances, lang);
+
+  // Генерация графика
+  const chartBuffer = await generateChart(klines.slice(-20), sma5.slice(-20), sma15.slice(-20), supports, resistances, lang);
+  if (chartBuffer) {
+    await ctx.replyWithPhoto({ source: chartBuffer });
+  } else {
+    ctx.reply(languages[lang].texts.errorGeneratingChart);
+  }
+
+  // Отправка анализа
+  ctx.reply(analysisText, Markup.inlineKeyboard([
+    Markup.button.callback(languages[lang].texts.choosePair, 'back_to_pairs'),
+    Markup.button.callback(languages[lang].texts.chooseTimeframe, 'back_to_timeframes')
+  ]));
+});
+
+// Возврат к выбору пары
+bot.action('back_to_pairs', (ctx) => {
+  const lang = ctx.session.lang || 'en';
+  ctx.editMessageText(languages[lang].texts.choosePair, Markup.inlineKeyboard(
+    languages[lang].pairsMain.map(pair => [
+      Markup.button.callback(displayNames[pair][lang], `pair_${pair}`)
+    ])
+  ));
+});
+
+// Возврат к выбору таймфрейма
+bot.action('back_to_timeframes', (ctx) => {
+  const lang = ctx.session.lang || 'en';
+  ctx.editMessageText(languages[lang].texts.chooseTimeframe, Markup.inlineKeyboard(
+    languages[lang].timeframes.map(tf => [
+      Markup.button.callback(tf.label, `tf_${tf.value}`)
+    ])
+  ));
+});
+
+// Обработка неизвестных команд
+bot.on('text', (ctx) => {
+  const lang = ctx.session?.lang || 'en';
+  ctx.reply(languages[lang].texts.unknownCmd);
+});
+
+// Запуск бота
 bot.launch().then(() => {
   console.log('Bot started');
 }).catch(err => {
