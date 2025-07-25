@@ -1,5 +1,6 @@
 import { Telegraf, Markup } from 'telegraf';
-import { session } from 'telegraf-session-local'; // Добавляем модуль для сессий
+import pkg from 'telegraf-session-local'; // Импортируем как CommonJS
+const { session } = pkg; // Деструктурируем session из пакета
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
 import Chart from 'chart.js/auto';
 import annotationPlugin from 'chartjs-plugin-annotation';
