@@ -487,40 +487,329 @@ function generateDetailedRecommendation(price, sma5, rsiVal, candlePattern, lang
     recommendation =
       (lang === 'ru'
         ? `Цена торгуется выше 50-периодной скользящей средней (${sma5.toFixed(5)}), что подтверждает восходящий тренд. RSI (${rsiVal.toFixed(1)}) находится в комфортной зоне без признаков перекупленности.\nОбнаружен свечной паттерн "Молот" — сильный сигнал бычьего разворота.\n\nРекомендуется рассматривать покупки с целью продолжения роста цены. Целями могут стать ближайшие уровни сопротивления. Следует контролировать объём и динамику RSI для своевременного управления рисками.`
-        : `Price trades above the 50-period moving average (${sma5.toFixed(5)}), confirming an uptrend. RSI (${rsiVal.toFixed(1)}) is in a comfortable zone without signs of overbought.\nHammer candle pattern detected — a strong bullish reversal signal.\n\nConsider buying to continue the price rise. Targets may be the nearest resistance levels. Monitor volume and RSI dynamics for timely risk management.`)
+        : `Price trades above the 50-period moving average (${sma5.toFixed(5)}), confirming an uptrend. RSI (${rsiVal.toFixed(1)}) is in a comfortable zone without signs of overbought.\nHammer candle pattern detected — a strong bullish reversal signal.\n\nConsider buying to continue the price rise. Targets may be the nearest resistance levels. Monitor volume and RSI dynamics for timely risk management.`);
   } else if (!priceAboveSMA && rsiOverbought && candlePattern && candlePattern.includes('Повешенный')) {
     emoji = '📉⚠️';
     recommendation =
       (lang === 'ru'
         ? `Цена находится ниже 50-периодной скользящей средней (${sma5?.toFixed(5) || 'N/A'}), что указывает на нисходящий тренд. RSI (${rsiVal.toFixed(1)}) показывает перекупленность рынка.\nСвечной паттерн "Повешенный" сигнализирует о возможном развороте вниз.\n\nРекомендуется рассматривать продажи с целью снижения цены к ближайшим уровням поддержки. Важно следить за подтверждающими сигналами и объёмом для подтверждения силы движения.`
-        : `Price is below the 50-period moving average (${sma5?.toFixed(5) || 'N/A'}), indicating a downtrend. RSI (${rsiVal.toFixed(1)}) shows an overbought market.\nHanging Man candle pattern signals a possible reversal down.\n\nConsider selling to lower price to nearest support levels. Important to watch confirming signals and volume to confirm strength of movement.`)
+        : `Price is below the 50-period moving average (${sma5?.toFixed(5) || 'N/A'}), indicating a downtrend. RSI (${rsiVal.toFixed(1)}) shows an overbought market.\nHanging Man candle pattern signals a possible reversal down.\n\nConsider selling to lower price to nearest support levels. Important to watch confirming signals and volume to confirm strength of movement.`);
   } else if (priceAboveSMA && rsiOversold) {
     emoji = '🔄📊';
     recommendation =
       (lang === 'ru'
         ? `Цена выше скользящей средней (${sma5.toFixed(5)}), но RSI (${rsiVal.toFixed(1)}) указывает на перепроданность.\nЭто часто предвещает продолжение восходящего тренда после краткосрочной коррекции.\n\nРекомендуется искать точки входа в покупки с целью возврата к тренду. Следует контролировать формирование свечных паттернов и объём для подтверждения разворота.`
-        : `Price is above the moving average (${sma5.toFixed(5)}), but RSI (${rsiVal.toFixed(1)}) indicates oversold.\nThis often predicts continuation of uptrend after a short correction.\n\nLook for buying entry points aiming to return to the trend. Monitor candle patterns and volume to confirm reversal.`)
+        : `Price is above the moving average (${sma5.toFixed(5)}), but RSI (${rsiVal.toFixed(1)}) indicates oversold.\nThis often predicts continuation of uptrend after a short correction.\n\nLook for buying entry points aiming to return to the trend. Monitor candle patterns and volume to confirm reversal.`);
   } else if (!priceAboveSMA && rsiOverbought) {
     emoji = '⚠️📉';
     recommendation =
       (lang === 'ru'
         ? `Цена торгуется ниже скользящей средней (${sma5?.toFixed(5) || 'N/A'}), а RSI (${rsiVal.toFixed(1)}) сигнализирует о перекупленности.\nЭто может означать скорую коррекцию или разворот вниз.\n\nРекомендуется рассматривать продажи с целью снижения цены к уровням поддержки, но важно контролировать сигналы объёма и свечных паттернов для подтверждения.`
-        : `Price trades below the moving average (${sma5?.toFixed(5) || 'N/A'}), and RSI (${rsiVal.toFixed(1)}) signals overbought.\nThis may mean an imminent correction or reversal down.\n\nConsider selling aiming price down to support levels, but carefully control volume signals and candle patterns for confirmation.`)
+        : `Price trades below the moving average (${sma5?.toFixed(5) || 'N/A'}), and RSI (${rsiVal.toFixed(1)}) signals overbought.\nThis may mean an imminent correction or reversal down.\n\nConsider selling aiming price down to support levels, but carefully control volume signals and candle patterns for confirmation.`);
   } else if (priceAboveSMA && !rsiOverbought && !rsiOversold) {
     emoji = '📈🔍';
     recommendation =
       (lang === 'ru'
         ? `Цена выше скользящей средней (${sma5.toFixed(5)}), что указывает на восходящий тренд.\nRSI (${rsiVal.toFixed(1)}) находится в нейтральной зоне, подтверждая баланс спроса и предложения.\n\nОжидается дальнейшее движение вверх с возможными краткосрочными коррекциями. Рекомендуется искать точки для входа в покупки на откатах, учитывая уровни поддержки.`
-        : `Price is above the moving average (${sma5.toFixed(5)}), indicating an uptrend.\nRSI (${rsiVal.toFixed(1)}) is in a neutral zone, confirming balance of supply and demand.\n\nFurther upward movement is expected with possible short corrections. Look for buying entries on pullbacks, considering support levels.`)
+        : `Price is above the moving average (${sma5.toFixed(5)}), indicating an uptrend.\nRSI (${rsiVal.toFixed(1)}) is in a neutral zone, confirming balance of supply and demand.\n\nFurther upward movement is expected with possible short corrections. Look for buying entries on pullbacks, considering support levels.`);
   } else if (!priceAboveSMA && !rsiOverbought && !rsiOversold) {
     emoji = '📉🔍';
     recommendation =
       (lang === 'ru'
         ? `Цена ниже скользящей средней (${sma5?.toFixed(5) || 'N/A'}), что указывает на нисходящий тренд.\nRSI (${rsiVal.toFixed(1)}) нейтрален, что говорит о равновесии между покупателями и продавцами.\n\nОжидается продолжение снижения с возможными откатами. Рекомендуется рассматривать продажи на откатах с контролем уровней сопротивления.`
-        : `Price is below the moving average (${sma5?.toFixed(5) || 'N/A'}), indicating a downtrend.\nRSI (${rsiVal.toFixed(1)}) is neutral, indicating balance between buyers and sellers.\n\nFurther decline expected with possible pullbacks. Consider selling on pullbacks with resistance level control.`)
+        : `Price is below the moving average (${sma5?.toFixed(5) || 'N/A'}), indicating a downtrend.\nRSI (${rsiVal.toFixed(1)}) is neutral, indicating balance between buyers and sellers.\n\nFurther decline expected with possible pullbacks. Consider selling on pullbacks with resistance level control.`);
   } else if (candlePattern) {
     emoji = '🕯️';
     recommendation =
       (lang === 'ru'
         ? `Обнаружен свечной паттерн "${candlePattern}", который может указывать на разворот или продолжение тренда.\n\nРекомендуется учитывать этот сигнал в сочетании с текущим трендом и индикаторами для принятия решения.`
-        : `C
+        : `Candle pattern "${candlePattern}" detected, which may indicate a reversal or trend continuation.\n\nConsider this signal in conjunction with the current trend and indicators for decision-making.`);
+  } else {
+    emoji = '🤔';
+    recommendation =
+      (lang === 'ru'
+        ? `Текущая ситуация на рынке не даёт чётких сигналов. Цена находится в зоне неопределённости относительно скользящей средней (${sma5?.toFixed(5) || 'N/A'}), а RSI (${rsiVal.toFixed(1)}) не указывает на экстремальные значения.\n\nРекомендуется воздержаться от активных действий и дождаться более ясных сигналов от индикаторов или свечных паттернов.`
+        : `Current market situation does not provide clear signals. Price is in an uncertainty zone relative to the moving average (${sma5?.toFixed(5) || 'N/A'}), and RSI (${rsiVal.toFixed(1)}) does not indicate extreme values.\n\nIt is recommended to refrain from active actions and wait for clearer signals from indicators or candle patterns.`);
+  }
+
+  return { emoji, recommendation };
+}
+
+// --- Обработчики команд бота ---
+bot.start((ctx) => {
+  const keyboard = Markup.keyboard([
+    ['Русский', 'English'],
+  ]).resize();
+  ctx.reply(languages.ru.texts.chooseLanguage, keyboard);
+});
+
+bot.hears(['Русский', 'English'], (ctx) => {
+  const lang = ctx.message.text === 'Русский' ? 'ru' : 'en';
+  ctx.session.lang = lang;
+  const texts = languages[lang].texts;
+  const pairs = [...languages[lang].pairsMain, ...languages[lang].pairsOTC];
+  const keyboard = Markup.keyboard(
+    pairs.map((p) => displayNames[p][lang])
+  ).resize();
+  ctx.reply(texts.choosePair, keyboard);
+});
+
+bot.on('text', async (ctx) => {
+  if (!ctx.session.lang) {
+    ctx.reply(languages.ru.texts.chooseLanguage);
+    return;
+  }
+  const lang = ctx.session.lang;
+  const texts = languages[lang].texts;
+  const inputText = ctx.message.text;
+
+  // Проверяем, выбрана ли валютная пара
+  const allPairs = [...languages[lang].pairsMain, ...languages[lang].pairsOTC];
+  const selectedPair = allPairs.find((p) => displayNames[p][lang] === inputText);
+  if (selectedPair) {
+    ctx.session.selectedPair = selectedPair;
+    const keyboard = Markup.keyboard(
+      languages[lang].timeframes.map((tf) => tf.label)
+    ).resize();
+    ctx.reply(texts.chooseTimeframe, keyboard);
+    return;
+  }
+
+  // Проверяем, выбран ли таймфрейм
+  const selectedTimeframe = languages[lang].timeframes.find(
+    (tf) => tf.label === inputText
+  );
+  if (selectedTimeframe) {
+    if (!ctx.session.selectedPair) {
+      ctx.reply(texts.pleaseChoosePairFirst);
+      return;
+    }
+    ctx.session.selectedTimeframe = selectedTimeframe;
+    await ctx.reply(
+      texts.analysisStarting(
+        displayNames[ctx.session.selectedPair][lang],
+        selectedTimeframe.label
+      )
+    );
+    await performAnalysis(ctx);
+    return;
+  }
+
+  ctx.reply(texts.unknownCmd);
+});
+
+// --- Функция анализа и генерации графика ---
+async function performAnalysis(ctx) {
+  const lang = ctx.session.lang;
+  const texts = languages[lang].texts;
+  const pair = ctx.session.selectedPair;
+  const timeframe = ctx.session.selectedTimeframe;
+  const isOTC = pair.startsWith('OTC_');
+
+  let klines;
+  if (isOTC) {
+    const now = Date.now();
+    klines = generateFakeOHLCFromTime(
+      now - 100 * timeframe.minutes * 60 * 1000,
+      100,
+      timeframe.minutes,
+      pair
+    );
+  } else {
+    klines = await fetchRealOHLC(pair, timeframe, 100);
+    if (!klines || klines.length === 0) {
+      klines = generateFakeOHLCFromTime(
+        Date.now() - 100 * timeframe.minutes * 60 * 1000,
+        100,
+        timeframe.minutes,
+        pair
+      );
+    }
+  }
+
+  if (!klines || klines.length === 0) {
+    ctx.reply(texts.errorGeneratingChart);
+    return;
+  }
+
+  // Выполняем анализ
+  const closes = klines.map((k) => k.close);
+  const volumes = klines.map((k) => k.volume);
+  const sma5 = calculateSMA(closes, 5);
+  const sma20 = calculateSMA(closes, 20);
+  const rsi = calculateRSI(closes, 14);
+  const { supports, resistances } = findSupportResistance(klines);
+  const lastClose = closes[closes.length - 1];
+  const secondLastClose = closes[closes.length - 2];
+  const lastVolume = volumes[volumes.length - 1];
+  const secondLastVolume = volumes[volumes.length - 2];
+  const lastRSI = rsi[rsi.length - 1];
+  const secondLastRSI = rsi[rsi.length - 2];
+  const lastCandle = klines[klines.length - 1];
+  const lastThreeCloses = closes.slice(-3);
+
+  let analysisText = '';
+  const trend =
+    lastClose > (sma5[sma5.length - 1] || 0) &&
+    lastClose > (sma20[sma20.length - 1] || 0)
+      ? texts.trendUp
+      : secondLastClose < (sma5[sma5.length - 2] || 0) &&
+        secondLastClose < (sma20[sma20.length - 2] || 0)
+      ? texts.trendDown
+      : texts.trendNone;
+  analysisText += `${trend}\n\n`;
+
+  if (isVolumeDecreasing(lastVolume, secondLastVolume)) {
+    analysisText += `${texts.volumeDecreasing}\n`;
+  } else {
+    analysisText += `${texts.volumeIncreasing}\n`;
+  }
+
+  const candlePattern = detectCandlePattern(lastCandle, lang);
+  if (candlePattern) {
+    analysisText += `${texts.candlePatternDetected}: ${candlePattern}\n`;
+  }
+
+  const divergence = detectRSIDivergence(
+    secondLastClose,
+    secondLastRSI,
+    lastClose,
+    lastRSI,
+    lang
+  );
+  if (divergence) {
+    analysisText += `${texts.divergenceDetected}: ${divergence}\n`;
+  }
+
+  if (supports.length > 0) {
+    const closestSupport = supports.sort((a, b) => Math.abs(lastClose - a) - Math.abs(lastClose - b))[0];
+    if (Math.abs(lastClose - closestSupport) / lastClose < 0.02) {
+      analysisText += `${texts.closeToSupport} ${closestSupport.toFixed(5)}\n`;
+    }
+    if (checkBreakoutWithRetest(lastThreeCloses, closestSupport, true)) {
+      analysisText += `${texts.breakoutSupport}\n`;
+    }
+  }
+
+  if (resistances.length > 0) {
+    const closestResistance = resistances.sort((a, b) => Math.abs(lastClose - a) - Math.abs(lastClose - b))[0];
+    if (Math.abs(lastClose - closestResistance) / lastClose < 0.02) {
+      analysisText += `${texts.closeToResistance} ${closestResistance.toFixed(5)}\n`;
+    }
+    if (checkBreakoutWithRetest(lastThreeCloses, closestResistance, false)) {
+      analysisText += `${texts.breakoutResistance}\n`;
+    }
+  }
+
+  const { emoji, recommendation } = generateDetailedRecommendation(
+    lastClose,
+    sma5[sma5.length - 1],
+    lastRSI,
+    candlePattern,
+    lang
+  );
+
+  analysisText += `\n${texts.recommendationPrefix} ${emoji}\n${recommendation}`;
+
+  // Генерируем график (упрощённая версия для примера)
+  const chartBuffer = await generateChart(klines, supports, resistances, lang);
+  if (chartBuffer) {
+    await ctx.replyWithPhoto({ source: chartBuffer });
+  }
+  await ctx.reply(analysisText);
+}
+
+// --- Функция генерации графика ---
+async function generateChart(klines, supports, resistances, lang) {
+  const texts = languages[lang].texts;
+  const configuration = {
+    type: 'candlestick',
+    data: {
+      datasets: [
+        {
+          label: texts.priceLabel,
+          data: klines.map((k) => ({
+            x: new Date(k.openTime),
+            o: k.open,
+            h: k.high,
+            l: k.low,
+            c: k.close,
+          })),
+          borderColor: 'rgba(0, 0, 0, 0.5)',
+          color: {
+            up: 'rgba(39, 174, 96, 0.8)',
+            down: 'rgba(192, 57, 43, 0.8)',
+            unchanged: 'rgba(0, 0, 0, 0.5)',
+          },
+        },
+      ],
+    },
+    options: {
+      scales: {
+        x: {
+          type: 'time',
+          time: {
+            unit: 'minute',
+          },
+          title: {
+            display: true,
+            text: texts.timeLabel,
+          },
+        },
+        y: {
+          title: {
+            display: true,
+            text: texts.priceLabel,
+          },
+        },
+      },
+      plugins: {
+        annotation: {
+          annotations: [
+            ...supports.map((s, i) => ({
+              type: 'line',
+              mode: 'horizontal',
+              scaleID: 'y',
+              value: s,
+              borderColor: 'rgba(46, 204, 113, 0.8)',
+              borderWidth: 2,
+              label: {
+                content: `${texts.supportLabel} ${i + 1}`,
+                enabled: true,
+                position: 'right',
+              },
+            })),
+            ...resistances.map((r, i) => ({
+              type: 'line',
+              mode: 'horizontal',
+              scaleID: 'y',
+              value: r,
+              borderColor: 'rgba(231, 76, 60, 0.8)',
+              borderWidth: 2,
+              label: {
+                content: `${texts.resistanceLabel} ${i + 1}`,
+                enabled: true,
+                position: 'right',
+              },
+            })),
+          ],
+        },
+      },
+    },
+  };
+
+  try {
+    const buffer = await chartJSNodeCanvas.renderToBuffer(configuration);
+    return buffer;
+  } catch (error) {
+    console.error('Ошибка генерации графика:', error);
+    return null;
+  }
+}
+
+// Запуск бота
+bot.launch().then(() => {
+  console.log('Бот запущен');
+}).catch((err) => {
+  console.error('Ошибка запуска бота:', err);
+});
