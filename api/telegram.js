@@ -1,6 +1,7 @@
 import { Telegraf, Markup, session } from 'telegraf';
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
-import { Chart, registerables } from 'chart.js';
+import ChartJS from 'chart.js';
+const { Chart, registerables } = ChartJS;
 import annotationPlugin from 'chartjs-plugin-annotation';
 import fetch from 'node-fetch';
 
@@ -48,6 +49,7 @@ const languages = {
       errorGeneratingChart: 'Ошибка при генерации графика.',
       recommendationPrefix: 'Рекомендация:',
       nextAnalysis: 'Следующий анализ',
+      priceNow: (pair, price) => `Текущая цена ${pair}: ${price.toFixed(6)}`,
     },
   },
   en: {
@@ -74,6 +76,7 @@ const languages = {
       errorGeneratingChart: 'Error generating chart.',
       recommendationPrefix: 'Recommendation:',
       nextAnalysis: 'Next analysis',
+      priceNow: (pair, price) => `Current price of ${pair}: ${price.toFixed(6)}`,
     },
   },
 };
@@ -112,6 +115,34 @@ function chunkArray(arr, size) {
     result.push(arr.slice(i, i + size));
   }
   return result;
+}
+
+// --- Новая функция получения котировок с exchangerate.host ---
+async function fetchForexPrices(pairs) {
+  const uniqueBases = new Set(pairs.map(p => p.slice(0,3)));
+  const prices = {};
+
+  for (const base of uniqueBases) {
+    const targets = pairs.filter(p => p.startsWith(base)).map(p => p.slice(3));
+    if (targets.length === 0) continue;
+
+    const url = `https://api.exchangerate.host/latest?base=${base}&symbols=${targets.join(',')}`;
+    try {
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data && data.rates) {
+        for (const [quote, rate] of Object.entries(data.rates)) {
+          const pair = base + quote;
+          if (pairs.includes(pair)) {
+            prices[pair] = rate;
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Ошибка получения курсов:', e);
+    }
+  }
+  return prices;
 }
 
 async function sendPairSelection(ctx, lang) {
@@ -188,9 +219,18 @@ bot.on('callback_query', async (ctx) => {
     ctx.session.timeframe = tf;
     await ctx.answerCbQuery();
 
-    await ctx.editMessageText(langData.texts.analysisStarting(displayNames[ctx.session.pair][lang], tf.label));
+    // Получаем текущие котировки валютных пар
+    const prices = await fetchForexPrices(languages[lang].pairsMain);
 
-    // Пример получения данных и анализа
+    if (prices && prices[ctx.session.pair]) {
+      await ctx.editMessageText(langData.texts.analysisStarting(displayNames[ctx.session.pair][lang], tf.label));
+      await ctx.reply(langData.texts.priceNow(displayNames[ctx.session.pair][lang], prices[ctx.session.pair]));
+    } else {
+      await ctx.reply(langData.texts.errorGeneratingChart);
+    }
+
+    // Пример вызова анализа и генерации графиков оставлен в комментариях
+    /*
     const klines = await fetchOHLC(ctx.session.pair, tf.minutes, 100);
     if (!klines) {
       await ctx.reply(langData.texts.errorGeneratingChart);
@@ -218,6 +258,7 @@ bot.on('callback_query', async (ctx) => {
     await ctx.reply(analysisText, Markup.inlineKeyboard([
       Markup.button.callback(langData.texts.nextAnalysis, 'next_analysis')
     ]));
+    */
 
     return;
   }
