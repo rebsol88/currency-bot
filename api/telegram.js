@@ -1,15 +1,16 @@
 import { Telegraf, Markup, session } from 'telegraf';
 import WebSocket from 'ws';
+import axios from 'axios';
 
 // --- Настройки ---
 const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
-// Используем рабочий WS сервер Pocket Option (пример, может потребоваться обновить)
-const PO_WS_SERVER = 'wss://ws.pocketoption.com/echo/websocket';
-const UID = 91717690; // Ваш uid с сайта Pocket Option
-const USER_SECRET = 'eea7f7588a9a0d84b68e0010a0026544'; // Ваш userSecret с сайта Pocket Option
 
-const bot = new Telegraf(BOT_TOKEN);
-bot.use(session());
+// Ваши данные для логина Pocket Option
+const PO_EMAIL = 'shustry_boy@mail.ru'; // замените на свои данные
+const PO_PASSWORD = 'do23_d3DnN1cs_';
+
+// WS сервер Pocket Option (пример, может меняться)
+const PO_WS_SERVER = 'wss://ws.pocketoption.com/websocket';
 
 // --- Языковые данные ---
 const languages = {
@@ -80,7 +81,6 @@ const displayNames = {
   AUDCAD: { ru: 'AUD/CAD', en: 'AUD/CAD' },
 };
 
-// --- Вспомогательные ---
 function chunkArray(arr, size) {
   const result = [];
   for (let i = 0; i < arr.length; i += size) {
@@ -89,11 +89,46 @@ function chunkArray(arr, size) {
   return result;
 }
 
-// --- WS Клиент для Pocket Option ---
+// --- Авторизация и получение cookie ---
+async function loginPocketOption() {
+  try {
+    const response = await axios.post('https://auth.pocketoption.com/api/v1/login', {
+      email: PO_EMAIL,
+      password: PO_PASSWORD,
+    }, {
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: 'https://pocketoption.com',
+        Referer: 'https://pocketoption.com/',
+      },
+      withCredentials: true,
+    });
+
+    // В cookie может быть токен сессии
+    const setCookie = response.headers['set-cookie'];
+    if (!setCookie) throw new Error('Cookie not received');
+
+    // Собираем cookie в строку
+    const cookieString = setCookie.map(c => c.split(';')[0]).join('; ');
+
+    // В ответе может быть userSecret или uid
+    const { userSecret, uid } = response.data;
+
+    if (!userSecret || !uid) throw new Error('userSecret or uid not found in login response');
+
+    return { cookieString, userSecret, uid };
+  } catch (e) {
+    console.error('Login error:', e.message);
+    throw e;
+  }
+}
+
+// --- WS клиент Pocket Option ---
 class PocketOptionWSClient {
-  constructor(uid, userSecret, server) {
-    this.uid = uid;
+  constructor(cookie, userSecret, uid, server) {
+    this.cookie = cookie;
     this.userSecret = userSecret;
+    this.uid = uid;
     this.server = server;
     this.ws = null;
     this.subscriptions = new Set();
@@ -104,31 +139,37 @@ class PocketOptionWSClient {
   connect() {
     this.ws = new WebSocket(this.server, {
       headers: {
-        Origin: 'https://pocketoption.com', // Добавляем Origin, чтобы избежать 403
+        Origin: 'https://pocketoption.com',
+        Cookie: this.cookie,
+        // Иногда может потребоваться Authorization или другие заголовки
       },
     });
 
     this.ws.on('open', () => {
       this.isConnected = true;
       console.log('WS connected');
-      // Авторизация (пример, может потребовать корректировки)
+
+      // Авторизация через WS (пример)
       const authMsg = {
         type: 'auth',
         uid: this.uid,
         userSecret: this.userSecret,
       };
       this.ws.send(JSON.stringify(authMsg));
-      // Подписка на уже запрошенные пары
-      this.subscriptions.forEach((pair) => this.subscribe(pair));
+
+      // Подписки
+      this.subscriptions.forEach(pair => this.subscribe(pair));
     });
 
     this.ws.on('message', (data) => {
+      let msg;
       try {
-        const msg = JSON.parse(data);
-        this.messageHandlers.forEach((handler) => handler(msg));
+        msg = JSON.parse(data);
       } catch (e) {
         console.error('WS message parse error:', e);
+        return;
       }
+      this.messageHandlers.forEach(handler => handler(msg));
     });
 
     this.ws.on('close', () => {
@@ -148,7 +189,6 @@ class PocketOptionWSClient {
       this.subscriptions.add(pair);
       return;
     }
-    // Формат подписки — пример, нужно подстроить под реальный протокол
     const subMsg = {
       type: 'subscribe',
       channel: 'ticker',
@@ -171,11 +211,10 @@ class PocketOptionWSClient {
   }
 }
 
-// --- Инициализация WS клиента ---
-const poWSClient = new PocketOptionWSClient(UID, USER_SECRET, PO_WS_SERVER);
-poWSClient.connect();
+// --- Инициализация бота ---
+const bot = new Telegraf(BOT_TOKEN);
+bot.use(session());
 
-// --- Отправка выбора пары ---
 async function sendPairSelection(ctx, lang) {
   const langData = languages[lang];
   const mainButtons = langData.pairsMain.map(p => Markup.button.callback(displayNames[p][lang], displayNames[p][lang]));
@@ -205,7 +244,8 @@ async function sendPairSelection(ctx, lang) {
   }
 }
 
-// --- Обработчики бота ---
+let poWSClient = null;
+
 bot.start(async (ctx) => {
   ctx.session = {};
   const buttons = [
@@ -226,6 +266,23 @@ bot.action(/lang_(.+)/, async (ctx) => {
   ctx.session.pair = null;
   ctx.session.timeframe = null;
   await ctx.answerCbQuery();
+
+  // Логинимся и создаём WS клиент
+  try {
+    const { cookieString, userSecret, uid } = await loginPocketOption();
+
+    if (poWSClient) {
+      poWSClient.close();
+      poWSClient = null;
+    }
+
+    poWSClient = new PocketOptionWSClient(cookieString, userSecret, uid, PO_WS_SERVER);
+    poWSClient.connect();
+
+  } catch (e) {
+    await ctx.reply('Ошибка авторизации Pocket Option, попробуйте позже');
+    return;
+  }
 
   await sendPairSelection(ctx, lang);
 });
@@ -284,6 +341,11 @@ bot.on('callback_query', async (ctx) => {
       await ctx.reply(langData.texts.analysisStarting(displayNames[ctx.session.pair][lang], tf.label));
     }
 
+    if (!poWSClient || !poWSClient.isConnected) {
+      await ctx.reply('WebSocket не подключен, попробуйте выбрать язык заново');
+      return;
+    }
+
     // Подписка на котировки через WS
     poWSClient.subscribe(ctx.session.pair);
 
@@ -306,6 +368,5 @@ bot.on('callback_query', async (ctx) => {
   await ctx.answerCbQuery(langData.texts.unknownCmd);
 });
 
-// --- Запуск бота ---
 bot.launch();
 console.log('Бот запущен');
