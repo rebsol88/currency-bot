@@ -328,7 +328,8 @@ async function sendPairSelection(ctx, lang) {
 
 // --- Обработчики бота ---
 bot.start(async (ctx) => {
-  ctx.session = ctx.session || {};
+  // Сбрасываем сессию при старте
+  ctx.session = {};
   const buttons = [
     Markup.button.callback(languages.ru.name, 'lang_ru'),
     Markup.button.callback(languages.en.name, 'lang_en'),
@@ -344,6 +345,8 @@ bot.action(/lang_(.+)/, async (ctx) => {
   }
   ctx.session = ctx.session || {};
   ctx.session.lang = lang;
+  ctx.session.pair = null;
+  ctx.session.timeframe = null;
   await ctx.answerCbQuery();
 
   await sendPairSelection(ctx, lang);
@@ -373,6 +376,7 @@ bot.on('callback_query', async (ctx) => {
   if (pairEntry) {
     const pair = pairEntry[0];
     ctx.session.pair = pair;
+    ctx.session.timeframe = null;
     await ctx.answerCbQuery();
 
     const tfButtons = langData.timeframes.map(tf => Markup.button.callback(tf.label, tf.label));
