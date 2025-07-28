@@ -1,8 +1,8 @@
 import { Telegraf, Markup, session } from 'telegraf';
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
-import Chart from 'chart.js/auto/auto.js';
+import Chart from 'chart.js/auto';
 import annotationPlugin from 'chartjs-plugin-annotation';
-import fetch from 'node-fetch'; // если в среде Node.js v18+ - можно использовать глобальный fetch
+import fetch from 'node-fetch';
 
 // --- Настройки ---
 const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
@@ -18,6 +18,7 @@ const chartJSNodeCanvas = new ChartJSNodeCanvas({
   chartCallback: (ChartJS) => {
     ChartJS.register(annotationPlugin);
   },
+  chartJs: Chart,
 });
 
 const languages = {
@@ -27,7 +28,6 @@ const languages = {
       'EURUSD', 'USDJPY', 'GBPUSD', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD', 'EURGBP',
       'EURJPY', 'GBPJPY', 'CHFJPY', 'AUDJPY', 'EURCHF', 'EURCAD', 'AUDCAD', 'NZDJPY',
     ],
-    // Убираем OTC пары
     pairsOTC: [],
     timeframes: [
       { label: '1 минута', value: '1m', minutes: 1 },
@@ -131,62 +131,21 @@ const displayNames = {
   NZDJPY: { ru: 'NZD/JPY', en: 'NZD/JPY' },
 };
 
-// --- Получение реальных котировок с Dukascopy ---
-// API Dukascopy для свечей (пример):  
-// https://www.dukascopy.com/datafeed/EURUSD/2023/04/27/01h_ticks.bi5  
-// Но удобнее использовать сервис https://www.dukascopy.com/datafeed/ с историей.
-// Для простоты возьмём публичный API с https://www.dukascopy.com/datafeed/ (формат OHLC в JSON нет, но можно получить свечи в CSV или bi5)
-
-// Для демонстрации — используем сторонний API для получения OHLC с Dukascopy через https://api-fxtrade.oanda.com/v3/instruments/{instrument}/candles (требуется ключ) — но у нас нет ключа.
-
-// Поэтому сделаем запрос к Dukascopy с помощью их датафида для 1-мин свечей (нужно распарсить bi5 файлы) — сложновато.
-
-// Для упрощения — воспользуемся бесплатным API https://fcsapi.com/api-v3/forex/candles (требует ключ, но есть бесплатный)
-
-// Но чтобы сразу вставить в бота, сделаем fetch к публичному API с Yahoo Finance (пример) или exchangerate.host для курсов,
-// но там нет OHLC.
-
-// В итоге для демонстрации возьмём public API https://api.binance.com/api/v3/klines?symbol=EURUSDT&interval=1m&limit=100
-
-// Преобразуем пары в формат Binance (например, EURUSD → EURUSDT), но Binance не торгует USD, а USDT.
-
-// Чтобы получить котировки с Dukascopy, проще использовать сторонний сервис, например https://www.dukascopy.com/swiss/english/marketwatch/historical/ с парсингом или кешированием.
-
-// В итоге, ниже функция получения OHLC с Dukascopy через https://www.dukascopy.com/datafeed/ с кешированием и парсингом CSV (упрощённо).
-
-// Для примера реализуем функцию fetchDukascopyOHLC с кешем, которая загружает 100 последних 1-мин свечей.
-
-// Пары Dukascopy пишутся с заглавными буквами и слешем, например EUR/USD → EURUSD
-
-// URL для 1-мин свечей: https://www.dukascopy.com/datafeed/EURUSD/2023/04/27/01h_ticks.bi5 — сложный формат.
-
-// Поэтому возьмём альтернативу — https://www.dukascopy.com/datafeed/EURUSD/2023/04/27/01h_ticks.bi5 — бинарный формат bi5, требует распаковки.
-
-// Для упрощения — воспользуемся https://www.dukascopy.com/datafeed/EURUSD/2023/06/01/1min_ticks.bi5 — но парсинг bi5 вне рамок.
-
-// В итоге заменим generateFakeOHLCFromTime на функцию с запросом к https://api.exchangerate.host/timeseries с курсами.
-
-// --- Получение OHLC по API exchangerate.host (работает без ключа) ---
-
-async function fetchOHLC(pair, timeframe, count) {
-  // pair: EURUSD → EUR/USD
+// --- Получение OHLC с exchangerate.host (дневные данные, упрощённо) ---
+async function fetchOHLC(pair, timeframeMinutes, count) {
   const from = pair.slice(0, 3);
   const to = pair.slice(3, 6);
   const endDate = new Date();
-  const startDate = new Date(endDate.getTime() - count * timeframe * 60 * 1000);
+  const msPerMinute = 60 * 1000;
+  const msPerDay = 24 * 60 * 60 * 1000;
 
-  // exchangerate.host не предоставляет OHLC, только курсы по дням, поэтому сделаем запрос по дням и сгенерируем OHLC из курсов
-  // Для demo — запросим исторические курсы с daily resolution:
-  // https://api.exchangerate.host/timeseries?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD&base=FROM&symbols=TO
+  // Для демонстрации поддерживаем только таймфрейм 1d (1440 мин)
+  if (timeframeMinutes !== 1440) {
+    // Возвращаем null, чтобы сигнализировать об отсутствии данных
+    return null;
+  }
 
-  // Но нет минутных данных, только дневные.
-
-  // Поэтому для демонстрации будем использовать fake OHLC с реальными ценами close за дни.
-
-  // Для более точных данных — нужен платный API.
-
-  // Для демонстрации — сгенерируем OHLC на основе дневных курсов с exchangerate.host
-
+  const startDate = new Date(endDate.getTime() - count * msPerDay);
   const startDateStr = startDate.toISOString().slice(0, 10);
   const endDateStr = endDate.toISOString().slice(0, 10);
 
@@ -199,12 +158,10 @@ async function fetchOHLC(pair, timeframe, count) {
     const json = await res.json();
     if (!json.rates) throw new Error('Нет данных курсов');
 
-    // Преобразуем в массив { date, rate }
     const ratesArr = Object.entries(json.rates)
       .map(([date, obj]) => ({ date, rate: obj[to] }))
       .sort((a, b) => new Date(a.date) - new Date(b.date));
 
-    // Сгенерируем OHLC из дневных курсов (close = rate, open = предыдущий close, high/low ± небольшой разброс)
     const ohlc = [];
 
     for (let i = 0; i < ratesArr.length; i++) {
@@ -213,7 +170,7 @@ async function fetchOHLC(pair, timeframe, count) {
       const high = Math.max(open, close) * (1 + 0.002);
       const low = Math.min(open, close) * (1 - 0.002);
       const openTime = new Date(ratesArr[i].date).getTime();
-      const closeTime = openTime + 24 * 60 * 60 * 1000 - 1;
+      const closeTime = openTime + msPerDay - 1;
 
       ohlc.push({
         openTime,
@@ -233,20 +190,55 @@ async function fetchOHLC(pair, timeframe, count) {
   }
 }
 
-// --- Индикаторы и функции анализа оставляем без изменений ---
-// (вставьте сюда все функции calculateSMA, calculateRSI, calculateMACD, calculateStochastic, findSupportResistance,
-// isVolumeDecreasing, detectCandlePattern, detectRSIDivergence, checkBreakoutWithRetest, generateDetailedRecommendation,
-// analyzeIndicators, generateChartImage — как в вашем исходном коде, без изменений)
+// --- Индикаторы и функции анализа ---
+// Вставьте сюда ваши функции calculateSMA, calculateRSI, calculateMACD, calculateStochastic,
+// findSupportResistance, isVolumeDecreasing, detectCandlePattern, detectRSIDivergence,
+// checkBreakoutWithRetest, generateDetailedRecommendation, analyzeIndicators, generateChartImage
+// без изменений из вашего исходного кода.
 
-// Для краткости здесь не повторяю - вставьте ваши функции из исходного кода.
+// Для примера вставим заглушки (замените на реальные реализации):
 
-// --- Функция генерации фейковых данных убирается ---
+function calculateSMA(closes, period) {
+  // Реализуйте скользящую среднюю
+  return [];
+}
+function calculateRSI(closes, period) {
+  return [];
+}
+function calculateMACD(closes) {
+  return { macdLine: [], signalLine: [], histogram: [] };
+}
+function calculateStochastic(klines) {
+  return [];
+}
+function findSupportResistance(klines) {
+  return { supports: [], resistances: [] };
+}
+function isVolumeDecreasing(klines) {
+  return false;
+}
+function detectCandlePattern(klines) {
+  return null;
+}
+function detectRSIDivergence(rsi) {
+  return false;
+}
+function checkBreakoutWithRetest(klines, supports, resistances) {
+  return { breakoutSupport: false, breakoutResistance: false };
+}
+function generateDetailedRecommendation() {
+  return '';
+}
+function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances, lang) {
+  const langData = languages[lang];
+  return langData.texts.recommendationPrefix + ' ' + 'Анализ пока не реализован.';
+}
+async function generateChartImage(klines, sma5, sma15, supports, resistances, pair, timeframeLabel, lang) {
+  // Вернём пустой буфер, замените на реальную генерацию графика
+  return Buffer.alloc(0);
+}
 
-// --- Telegram Bot ---
-
-const historyData = {}; // { 'EURUSD_1m': [klines...] }
-
-// Вспомогательная функция для разбивки массива на чанки
+// --- Функция разбивки массива на чанки ---
 function chunkArray(arr, size) {
   const result = [];
   for (let i = 0; i < arr.length; i += size) {
@@ -255,19 +247,18 @@ function chunkArray(arr, size) {
   return result;
 }
 
-// Функция для вывода выбора валютных пар (используется при старте и при "Следующий анализ")
+// --- Отправка выбора валютной пары ---
 async function sendPairSelection(ctx, lang) {
   const langData = languages[lang];
   const mainButtons = langData.pairsMain.map(p => Markup.button.callback(displayNames[p][lang], displayNames[p][lang]));
-
   const mainKeyboard = chunkArray(mainButtons, 2);
-
-  // OTC убраны, не добавляем
-
   await ctx.editMessageText(langData.texts.choosePair, Markup.inlineKeyboard(mainKeyboard));
 }
 
-// /start — выбор языка
+// --- Telegram Bot ---
+
+const historyData = {}; // Для кеша
+
 bot.start(async (ctx) => {
   ctx.session = {};
   const buttons = [
@@ -277,7 +268,6 @@ bot.start(async (ctx) => {
   await ctx.reply(languages.ru.texts.chooseLanguage, Markup.inlineKeyboard(buttons));
 });
 
-// Обработка выбора языка
 bot.action(/lang_(.+)/, async (ctx) => {
   const lang = ctx.match[1];
   if (!languages[lang]) {
@@ -286,14 +276,12 @@ bot.action(/lang_(.+)/, async (ctx) => {
   }
   ctx.session.lang = lang;
   await ctx.answerCbQuery();
-
   await sendPairSelection(ctx, lang);
 });
 
-// Обработка нажатий inline кнопок с валютными парами и таймфреймами
 bot.on('callback_query', async (ctx) => {
   const data = ctx.callbackQuery.data;
-  const lang = ctx.session.lang || 'ru'; // По умолчанию русский
+  const lang = ctx.session.lang || 'ru';
   const langData = languages[lang];
 
   if (data === 'noop') {
@@ -301,24 +289,20 @@ bot.on('callback_query', async (ctx) => {
     return;
   }
 
-  // Обработка кнопки "Следующий анализ" — возвращаем к выбору валютных пар
   if (data === 'next_analysis') {
     await ctx.answerCbQuery();
-    // Очистим выбор пары и таймфрейма, чтобы пользователь мог выбрать заново
     ctx.session.pair = null;
     ctx.session.timeframe = null;
     await sendPairSelection(ctx, lang);
     return;
   }
 
-  // Проверим, является ли data валютной парой
   const pairEntry = Object.entries(displayNames).find(([, names]) => names[lang] === data);
   if (pairEntry) {
     const pair = pairEntry[0];
     ctx.session.pair = pair;
     await ctx.answerCbQuery();
 
-    // Показываем таймфреймы на выбранном языке
     const tfButtons = langData.timeframes.map(tf => Markup.button.callback(tf.label, tf.label));
     const inlineTfButtons = chunkArray(tfButtons, 2);
 
@@ -326,7 +310,6 @@ bot.on('callback_query', async (ctx) => {
     return;
   }
 
-  // Проверим, является ли data таймфреймом
   const tf = langData.timeframes.find(t => t.label === data);
   if (tf) {
     if (!ctx.session.pair) {
@@ -340,8 +323,12 @@ bot.on('callback_query', async (ctx) => {
 
     const key = `${ctx.session.pair}_${tf.value}`;
 
-    // Получаем реальные OHLC из exchangerate.host (с ограничениями)
-    // Если нужно, замените fetchOHLC на вызов к реальному API с Dukascopy или другому
+    // Получаем OHLC — в демонстрации поддерживается только дневной таймфрейм
+    if (tf.minutes !== 1440) {
+      await ctx.reply(`Для таймфрейма "${tf.label}" пока нет данных. Пожалуйста, выберите 1 день.`);
+      return;
+    }
+
     const klines = await fetchOHLC(ctx.session.pair, tf.minutes, 100);
     if (!klines) {
       await ctx.reply(langData.texts.errorGeneratingChart);
@@ -366,7 +353,6 @@ bot.on('callback_query', async (ctx) => {
     }
 
     const analysisText = analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances, lang);
-    // Добавляем кнопку "Следующий анализ" под текстом анализа (которая теперь возвращает к выбору пары)
     await ctx.reply(analysisText, Markup.inlineKeyboard([
       Markup.button.callback(langData.texts.nextAnalysis, 'next_analysis')
     ]));
@@ -374,7 +360,6 @@ bot.on('callback_query', async (ctx) => {
     return;
   }
 
-  // Неизвестная команда
   await ctx.answerCbQuery(langData.texts.unknownCmd);
 });
 
