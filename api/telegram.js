@@ -200,6 +200,35 @@ const timeframeMapInvesting = {
   '1d': 'D',
 };
 
+// --- Универсальная функция поиска curr_id ---
+async function findCurrId($, pair) {
+  // 1. Поиск pair_id = 12345;
+  const scripts = $('script').get();
+  for (const script of scripts) {
+    const text = $(script).html();
+    if (!text) continue;
+    const match = text.match(/pair_id\s*=\s*(\d+)/);
+    if (match) {
+      return match[1];
+    }
+  }
+  // 2. Поиск "pairId":12345 в JSON
+  for (const script of scripts) {
+    const text = $(script).html();
+    if (!text) continue;
+    const match = text.match(/"pairId"\s*:\s*(\d+)/);
+    if (match) {
+      return match[1];
+    }
+  }
+  // 3. Поиск в meta-тегах
+  const meta = $('meta[name="instrument_id"]');
+  if (meta.length) {
+    return meta.attr('content');
+  }
+  throw new Error('Cannot find curr_id for pair ' + pair);
+}
+
 // --- Функция получения исторических свечей с Investing.com ---
 async function fetchRealOHLC(pair, timeframeValue, count = 100) {
   if (!timeframeMapInvesting[timeframeValue]) {
@@ -216,20 +245,7 @@ async function fetchRealOHLC(pair, timeframeValue, count = 100) {
   const mainPageResponse = await axios.get(url, { headers });
   const $ = cheerio.load(mainPageResponse.data);
 
-  let curr_id = null;
-  const scripts = $('script').get();
-  for (const script of scripts) {
-    const text = $(script).html();
-    if (!text) continue;
-    const match = text.match(/pair_id\s*=\s*(\d+)/);
-    if (match) {
-      curr_id = match[1];
-      break;
-    }
-  }
-  if (!curr_id) {
-    throw new Error('Cannot find curr_id for pair ' + pair);
-  }
+  const curr_id = await findCurrId($, pair);
 
   const endDate = new Date();
   const startDate = new Date(endDate.getTime() - 365 * 24 * 3600 * 1000);
