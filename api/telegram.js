@@ -43,6 +43,7 @@ const languages = {
       nextAnalysis: 'Следующий анализ',
       pleaseChoosePairFirst: 'Пожалуйста, сначала выберите валютную пару',
       unknownCmd: 'Неизвестная команда',
+      jsonData: 'Данные в JSON формате:\n',
     },
   },
   en: {
@@ -66,6 +67,7 @@ const languages = {
       nextAnalysis: 'Next analysis',
       pleaseChoosePairFirst: 'Please choose a currency pair first',
       unknownCmd: 'Unknown command',
+      jsonData: 'Data in JSON format:\n',
     },
   },
 };
@@ -259,19 +261,19 @@ async function fetchRealOHLC(pair, timeframeValue, count = 100) {
 
   const response = await axios.post(postUrl, params.toString(), { headers: postHeaders });
 
-  const $$ = cheerio.load(response.data);
+  const $data = cheerio.load(response.data);
 
   const klines = [];
-  $$('#curr_table tbody tr').each((i, el) => {
+  $data('#curr_table tbody tr').each((i, el) => {
     if (i >= count) return false;
-    const tds = $$(el).find('td');
+    const tds = $data(el).find('td');
     if (tds.length < 6) return;
-    const dateStr = $$(tds[0]).text().trim();
-    const openStr = $$(tds[1]).text().trim().replace(/,/g, '');
-    const highStr = $$(tds[2]).text().trim().replace(/,/g, '');
-    const lowStr = $$(tds[3]).text().trim().replace(/,/g, '');
-    const closeStr = $$(tds[4]).text().trim().replace(/,/g, '');
-    const volumeStr = $$(tds[5]).text().trim().replace(/,/g, '').replace(/K/g, '000').replace(/M/g, '000000');
+    const dateStr = $data(tds[0]).text().trim();
+    const openStr = $data(tds[1]).text().trim().replace(/,/g, '');
+    const highStr = $data(tds[2]).text().trim().replace(/,/g, '');
+    const lowStr = $data(tds[3]).text().trim().replace(/,/g, '');
+    const closeStr = $data(tds[4]).text().trim().replace(/,/g, '');
+    const volumeStr = $data(tds[5]).text().trim().replace(/,/g, '').replace(/K/g, '000').replace(/M/g, '000000');
 
     let openTime = Date.parse(dateStr);
     if (isNaN(openTime)) return;
@@ -432,6 +434,14 @@ bot.on('callback_query', async (ctx) => {
     try {
       const klines = await fetchRealOHLC(ctx.session.pair, tf.value, 100);
       historyData[key] = klines;
+
+      // Отправляем JSON данных в чат (с ограничением по длине)
+      const jsonText = JSON.stringify(klines, null, 2);
+      // Telegram ограничивает длину сообщения, разбиваем на части по 4000 символов
+      const chunkSize = 4000;
+      for (let i = 0; i < jsonText.length; i += chunkSize) {
+        await ctx.reply(langData.texts.jsonData + '```\n' + jsonText.slice(i, i + chunkSize) + '\n```', { parse_mode: 'MarkdownV2' });
+      }
 
       const closes = klines.map(k => k.close);
       const sma5 = calculateSMA(closes, 5);
