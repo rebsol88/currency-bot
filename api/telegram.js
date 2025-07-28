@@ -3,7 +3,7 @@ import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
 import Chart from 'chart.js/auto/auto.js';
 import annotationPlugin from 'chartjs-plugin-annotation';
 import axios from 'axios';
-import cheerio from 'cheerio';
+import * as cheerio from 'cheerio';  // <-- исправлено здесь
 
 // --- Настройки ---
 const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
@@ -182,20 +182,13 @@ const timeframeToSeconds = {
 };
 
 // --- Маппинг пары в формат Investing.com URL ---
-// Формат: https://www.investing.com/currencies/{pair-lowercase-with-hyphen}
-// Например, EURUSD -> eur-usd
-// Для некоторых пар с нестандартным названием можно добавить исключения, но у вас пары стандартные
 function pairToInvestingUrl(pair) {
-  // Разбиваем на две валюты
   const base = pair.slice(0, 3);
   const quote = pair.slice(3, 6);
   return `https://www.investing.com/currencies/${base.toLowerCase()}-${quote.toLowerCase()}`;
 }
 
-// --- Маппинг таймфрейма в параметр Investing.com для исторических данных ---
-// Поддерживаемые интервалы на Investing.com для истории:
-// 1m: '1m', 5m: '5m', 15m: '15m', 1h: '60', 4h: '240', 1d: 'D'
-// В URL параметре 'interval'
+// --- Маппинг таймфрейма в параметр Investing.com ---
 const timeframeMapInvesting = {
   '1m': '1m',
   '5m': '5m',
@@ -206,9 +199,6 @@ const timeframeMapInvesting = {
 };
 
 // --- Функция получения исторических свечей с Investing.com ---
-// Используем публичную историческую страницу с таблицей свечей и парсим с неё
-// Ограничения: Investing.com может менять структуру, и частые запросы могут блокировать IP
-// В этом примере парсим последние 100 свечей по выбранному таймфрейму
 async function fetchRealOHLC(pair, timeframeValue, count = 100) {
   if (!timeframeMapInvesting[timeframeValue]) {
     throw new Error('Unsupported timeframe: ' + timeframeValue);
@@ -216,13 +206,6 @@ async function fetchRealOHLC(pair, timeframeValue, count = 100) {
   const url = pairToInvestingUrl(pair);
   const interval = timeframeMapInvesting[timeframeValue];
 
-  // Для исторических данных Investing.com использует AJAX-запрос к URL вида:
-  // https://www.investing.com/instruments/HistoricalDataAjax
-  // с POST параметрами: action=historical_data, curr_id, st_date, end_date, interval, sort_col, sort_ord, etc.
-  // Но curr_id нужен, его можно получить парсингом главной страницы пары
-  // Для упрощения — будем парсить таблицу с историей с сайта (ограничено и не идеально)
-
-  // 1) Получаем страницу пары, чтобы найти curr_id
   const headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0 Safari/537.36',
     'Accept-Language': 'en-US,en;q=0.9',
@@ -231,9 +214,6 @@ async function fetchRealOHLC(pair, timeframeValue, count = 100) {
   const mainPageResponse = await axios.get(url, { headers });
   const $ = cheerio.load(mainPageResponse.data);
 
-  // curr_id находится в скриптах, например:
-  // var pair_id = 123456;
-  // Попробуем найти через regex
   let curr_id = null;
   const scripts = $('script').get();
   for (const script of scripts) {
@@ -246,13 +226,11 @@ async function fetchRealOHLC(pair, timeframeValue, count = 100) {
     }
   }
   if (!curr_id) {
-    // Альтернативно можно искать в data-id или по другому, но если не нашли — ошибка
     throw new Error('Cannot find curr_id for pair ' + pair);
   }
 
-  // 2) Формируем даты st_date и end_date в формате MM/DD/YYYY
   const endDate = new Date();
-  const startDate = new Date(endDate.getTime() - 365 * 24 * 3600 * 1000); // год назад
+  const startDate = new Date(endDate.getTime() - 365 * 24 * 3600 * 1000);
 
   function formatDate(d) {
     const mm = (d.getMonth() + 1).toString().padStart(2, '0');
@@ -261,7 +239,6 @@ async function fetchRealOHLC(pair, timeframeValue, count = 100) {
     return `${mm}/${dd}/${yyyy}`;
   }
 
-  // 3) Делаем POST запрос на https://www.investing.com/instruments/HistoricalDataAjax
   const postUrl = 'https://www.investing.com/instruments/HistoricalDataAjax';
 
   const params = new URLSearchParams();
@@ -284,13 +261,11 @@ async function fetchRealOHLC(pair, timeframeValue, count = 100) {
 
   const $$ = cheerio.load(response.data);
 
-  // Парсим таблицу
   const klines = [];
   $$('#curr_table tbody tr').each((i, el) => {
     if (i >= count) return false;
     const tds = $$(el).find('td');
     if (tds.length < 6) return;
-    // Формат даты: 08/18/2023 14:30 или 08/18/2023
     const dateStr = $$(tds[0]).text().trim();
     const openStr = $$(tds[1]).text().trim().replace(/,/g, '');
     const highStr = $$(tds[2]).text().trim().replace(/,/g, '');
@@ -298,13 +273,9 @@ async function fetchRealOHLC(pair, timeframeValue, count = 100) {
     const closeStr = $$(tds[4]).text().trim().replace(/,/g, '');
     const volumeStr = $$(tds[5]).text().trim().replace(/,/g, '').replace(/K/g, '000').replace(/M/g, '000000');
 
-    // Парсим дату
     let openTime = Date.parse(dateStr);
-    if (isNaN(openTime)) {
-      // Если не парсится, пропускаем
-      return;
-    }
-    // Приблизительно определим closeTime по таймфрейму
+    if (isNaN(openTime)) return;
+
     const tfSec = timeframeToSeconds[timeframeValue] || 60;
     const closeTime = openTime + tfSec * 1000 - 1;
 
@@ -331,7 +302,6 @@ async function fetchRealOHLC(pair, timeframeValue, count = 100) {
     throw new Error('No candle data parsed from Investing.com');
   }
 
-  // Данные идут в обратном хронологическом порядке — отсортируем по openTime по возрастанию
   klines.sort((a, b) => a.openTime - b.openTime);
 
   return klines;
