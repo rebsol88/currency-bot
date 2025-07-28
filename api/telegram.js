@@ -4,7 +4,7 @@ import Chart from 'chart.js/auto/auto.js';
 import annotationPlugin from 'chartjs-plugin-annotation';
 import WebSocket from 'ws';
 
-// --- PocketOptionApi класс (упрощённый) ---
+// --- PocketOptionApi класс с таймаутами и обработкой ошибок ---
 class PocketOptionApi {
   constructor() {
     this.ws = null;
@@ -15,14 +15,22 @@ class PocketOptionApi {
   connect() {
     return new Promise((resolve, reject) => {
       this.ws = new WebSocket('wss://iqoption.com/echo/websocket');
+
+      const connectTimeout = setTimeout(() => {
+        reject(new Error('WebSocket connection timeout'));
+        this.ws.terminate();
+      }, 10000);
+
       this.ws.on('open', () => {
+        clearTimeout(connectTimeout);
         resolve();
       });
+
       this.ws.on('message', (data) => {
         let msg;
         try {
           msg = JSON.parse(data);
-        } catch (e) {
+        } catch {
           return;
         }
         if (msg && msg.msg_id && this.callbacks.has(msg.msg_id)) {
@@ -31,9 +39,11 @@ class PocketOptionApi {
           this.callbacks.delete(msg.msg_id);
         }
       });
+
       this.ws.on('error', (err) => {
         reject(err);
       });
+
       this.ws.on('close', () => {
         // Можно логировать закрытие, если нужно
       });
@@ -52,9 +62,19 @@ class PocketOptionApi {
         msg,
         msg_id: id,
       };
+
+      const timeout = setTimeout(() => {
+        if (this.callbacks.has(id)) {
+          this.callbacks.delete(id);
+          reject(new Error('Request timeout'));
+        }
+      }, 10000);
+
       this.callbacks.set(id, (data) => {
+        clearTimeout(timeout);
         resolve(data);
       });
+
       this.ws.send(JSON.stringify(request));
     });
   }
@@ -75,6 +95,7 @@ class PocketOptionApi {
   close() {
     if (this.ws) {
       this.ws.close();
+      this.ws = null;
     }
   }
 }
@@ -144,7 +165,6 @@ const languages = {
   },
 };
 
-// Display names
 const displayNames = {
   EURUSD: { ru: 'EUR/USD', en: 'EUR/USD' },
   GBPUSD: { ru: 'GBP/USD', en: 'GBP/USD' },
@@ -188,7 +208,6 @@ function findSupportResistance(klines) {
   return { supports: [], resistances: [] }; // заглушка
 }
 async function generateChartImage(klines, sma5, sma15, supports, resistances, pair, timeframe, lang) {
-  // Пример генерации простого графика с Close и SMA
   const labels = klines.map(k => new Date(k.openTime).toLocaleString());
   const closeData = klines.map(k => k.close);
   const sma5Data = sma5;
@@ -257,32 +276,35 @@ const timeframeToSeconds = {
   '1d': 86400,
 };
 
-// --- Получение свечей ---
+// --- Получение свечей с таймаутом и обработкой ошибок ---
 async function fetchRealOHLC(pair, timeframeValue, count = 100) {
   const api = new PocketOptionApi();
-  await api.connect();
-
-  const tfSeconds = timeframeToSeconds[timeframeValue];
-  if (!tfSeconds) throw new Error('Unsupported timeframe: ' + timeframeValue);
-
-  let candles;
   try {
-    candles = await api.getCandles(pair, tfSeconds, count);
+    await api.connect();
+
+    const tfSeconds = timeframeToSeconds[timeframeValue];
+    if (!tfSeconds) throw new Error('Unsupported timeframe: ' + timeframeValue);
+
+    // Таймаут 15 секунд на получение свечей
+    const candles = await Promise.race([
+      api.getCandles(pair, tfSeconds, count),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout getting candles')), 15000))
+    ]);
+
+    const klines = candles.map(c => ({
+      openTime: c.at * 1000,
+      open: c.open,
+      high: c.max,
+      low: c.min,
+      close: c.close,
+      closeTime: c.at * 1000 + tfSeconds * 1000 - 1,
+      volume: c.volume,
+    }));
+
+    return klines;
   } finally {
     api.close();
   }
-
-  const klines = candles.map(c => ({
-    openTime: c.at * 1000,
-    open: c.open,
-    high: c.max,
-    low: c.min,
-    close: c.close,
-    closeTime: c.at * 1000 + tfSeconds * 1000 - 1,
-    volume: c.volume,
-  }));
-
-  return klines;
 }
 
 // --- Вспомогательные ---
@@ -328,7 +350,6 @@ async function sendPairSelection(ctx, lang) {
 
 // --- Обработчики бота ---
 bot.start(async (ctx) => {
-  // Сбрасываем сессию при старте
   ctx.session = {};
   const buttons = [
     Markup.button.callback(languages.ru.name, 'lang_ru'),
@@ -371,7 +392,7 @@ bot.on('callback_query', async (ctx) => {
     return;
   }
 
-  // Проверка выбора пары
+  // Выбор пары
   const pairEntry = Object.entries(displayNames).find(([, names]) => names[lang] === data);
   if (pairEntry) {
     const pair = pairEntry[0];
@@ -390,7 +411,7 @@ bot.on('callback_query', async (ctx) => {
     return;
   }
 
-  // Проверка выбора таймфрейма
+  // Выбор таймфрейма
   const tf = langData.timeframes.find(t => t.label === data);
   if (tf) {
     if (!ctx.session.pair) {
@@ -442,6 +463,6 @@ bot.on('callback_query', async (ctx) => {
   await ctx.answerCbQuery(langData.texts.unknownCmd);
 });
 
-// Запуск бота
+// --- Запуск бота ---
 bot.launch();
 console.log('Бот запущен');
