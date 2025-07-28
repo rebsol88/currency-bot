@@ -10,7 +10,9 @@ Chart.register(annotationPlugin);
 
 // --- Настройки ---
 const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
-const RAPIDAPI_KEY = 'ВАШ_RAPIDAPI_KEY'; // <-- Вставьте сюда ваш RapidAPI ключ
+const RAPIDAPI_KEY = 'ВАШ_RAPIDAPI_KEY'; // <-- Вставьте сюда ваш RapidAPI ключ для Yahoo Finance
+const EXCHANGERATE_API_KEY = 'f5dd464aa81408c06c90b4aa'; // Ваш ключ ExchangeRate-API
+
 const bot = new Telegraf(BOT_TOKEN);
 bot.use(session());
 
@@ -110,26 +112,17 @@ function chunkArray(arr, size) {
 
 // --- Функция для получения исторических данных с Yahoo Finance через RapidAPI ---
 async function fetchOHLC(pair, timeframeMinutes, count) {
-  // Yahoo Finance API через RapidAPI требует символы в формате: "EURUSD=X"
-  // Для форекс пар добавляем "=X" в конец
   const symbol = pair + '=X';
 
-  // Определяем интервал для Yahoo Finance API
-  // Поддерживаемые интервалы: 1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo
-  // Мы будем маппить наши таймфреймы к поддерживаемым:
   let interval = '1d';
   if (timeframeMinutes === 1) interval = '1m';
   else if (timeframeMinutes === 5) interval = '5m';
   else if (timeframeMinutes === 15) interval = '15m';
   else if (timeframeMinutes === 60) interval = '60m';
-  else if (timeframeMinutes === 240) interval = '1h'; // 4 часа - нет прямого, берем 1h (60m)
+  else if (timeframeMinutes === 240) interval = '1h';
   else if (timeframeMinutes === 1440) interval = '1d';
 
-  // Параметр range - сколько данных брать
-  // Для минутных интервалов можно брать '1d', '5d', '1mo' и т.п.
-  // Для дневных - '1mo', '3mo', '6mo' и т.п.
-  // Для упрощения возьмем range исходя из count и timeframe:
-  let range = '1mo'; // по умолчанию месяц
+  let range = '1mo';
   if (timeframeMinutes <= 15) range = '5d';
   else if (timeframeMinutes === 60) range = '1mo';
   else if (timeframeMinutes === 1440) range = '3mo';
@@ -158,7 +151,6 @@ async function fetchOHLC(pair, timeframeMinutes, count) {
     const indicators = result.indicators?.quote?.[0];
     if (!timestamps || !indicators) return null;
 
-    // Формируем массив OHLC объектов
     const klines = [];
     for (let i = 0; i < timestamps.length && klines.length < count; i++) {
       const o = indicators.open[i];
@@ -166,9 +158,9 @@ async function fetchOHLC(pair, timeframeMinutes, count) {
       const l = indicators.low[i];
       const c = indicators.close[i];
       const v = indicators.volume[i];
-      if ([o, h, l, c].some(x => x === undefined || x === null)) continue; // пропускаем неполные данные
+      if ([o, h, l, c].some(x => x === undefined || x === null)) continue;
       klines.push({
-        time: timestamps[i] * 1000, // в мс
+        time: timestamps[i] * 1000,
         open: o,
         high: h,
         low: l,
@@ -179,6 +171,32 @@ async function fetchOHLC(pair, timeframeMinutes, count) {
     return klines;
   } catch (e) {
     console.error('Ошибка запроса Yahoo Finance:', e);
+    return null;
+  }
+}
+
+// --- Функция получения текущей цены через ExchangeRate-API ---
+async function fetchCurrentPriceExchangeRateAPI(base, target) {
+  try {
+    const url = `https://v6.exchangerate-api.com/v6/${EXCHANGERATE_API_KEY}/latest/${base}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.error(`ExchangeRate-API error: ${res.status} ${res.statusText}`);
+      return null;
+    }
+    const data = await res.json();
+    if (data.result !== 'success') {
+      console.error('ExchangeRate-API returned error:', data['error-type']);
+      return null;
+    }
+    const rate = data.conversion_rates[target];
+    if (!rate) {
+      console.error(`No rate for ${target} in response`);
+      return null;
+    }
+    return rate;
+  } catch (e) {
+    console.error('ExchangeRate-API fetch error:', e);
     return null;
   }
 }
@@ -224,7 +242,6 @@ function calculateRSI(closes, period) {
     rsi[i] = avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss));
   }
 
-  // Заполняем null для первых period элементов
   for (let i = 0; i < period; i++) {
     if (rsi[i] === undefined) rsi[i] = null;
   }
@@ -245,7 +262,6 @@ function calculateMACD(closes) {
   const ema26 = ema(closes, 26);
   const macdLine = ema12.map((v, i) => v - ema26[i]);
   const signalLine = ema(macdLine.filter(v => v !== undefined && v !== null), 9);
-  // Подгоняем длины signalLine к macdLine (signalLine короче на 8)
   const fullSignalLine = Array(macdLine.length - signalLine.length).fill(null).concat(signalLine);
   const histogram = macdLine.map((v, i) => {
     if (v === null || fullSignalLine[i] === null) return null;
@@ -272,4 +288,51 @@ function calculateStochastic(klines, kPeriod = 14, dPeriod = 3) {
     const k = ((close - lowestLow) / (highestHigh - lowestLow)) * 100;
     kValues.push(k);
   }
-  for (let i =
+  for (let i = 0; i < klines.length; i++) {
+    if (i < kPeriod + dPeriod - 2) {
+      dValues.push(null);
+      continue;
+    }
+    let sum = 0;
+    for (let j = i - dPeriod + 1; j <= i; j++) {
+      sum += kValues[j];
+    }
+    dValues.push(sum / dPeriod);
+  }
+  return { kValues, dValues };
+}
+
+// --- Пример команды для вывода текущей цены ---
+
+bot.command('price', async (ctx) => {
+  try {
+    const lang = ctx.session.lang || 'ru';
+    const text = languages[lang].texts;
+
+    const pair = ctx.session.pair || languages[lang].pairsMain[0];
+    if (!pair) {
+      await ctx.reply(text.pleaseChoosePairFirst);
+      return;
+    }
+
+    const base = pair.slice(0, 3);
+    const target = pair.slice(3, 6);
+
+    await ctx.reply(text.priceNow(pair, 0) + ' (загрузка...)');
+
+    const price = await fetchCurrentPriceExchangeRateAPI(base, target);
+    if (price === null) {
+      await ctx.reply('Ошибка получения цены.');
+      return;
+    }
+
+    await ctx.reply(text.priceNow(pair, price));
+  } catch (e) {
+    console.error('Ошибка в команде /price:', e);
+    await ctx.reply('Произошла ошибка.');
+  }
+});
+
+// --- Запуск бота ---
+bot.launch();
+console.log('Бот запущен');
