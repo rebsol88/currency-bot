@@ -1,24 +1,14 @@
 import { Telegraf, Markup, session } from 'telegraf';
-import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
-import Chart from 'chart.js/auto/auto.js';
-import annotationPlugin from 'chartjs-plugin-annotation';
-import axios from 'axios';
+import WebSocket from 'ws';
 
 // --- Настройки ---
 const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
-const FINNHUB_API_KEY = 'a754732283e243e4ba7cf89d3223bbef';
+const PO_WS_SERVER = 'wss://api-msk.po.market'; // Можно выбрать из списка серверов
+const UID = 91717690; // Ваш uid с сайта Pocket Option
+const USER_SECRET = 'eea7f7588a9a0d84b68e0010a0026544'; // Ваш userSecret с сайта Pocket Option
+
 const bot = new Telegraf(BOT_TOKEN);
 bot.use(session());
-
-const width = 800;
-const height = 600;
-const chartJSNodeCanvas = new ChartJSNodeCanvas({
-  width,
-  height,
-  chartCallback: (ChartJS) => {
-    ChartJS.register(annotationPlugin);
-  },
-});
 
 // --- Языковые данные ---
 const languages = {
@@ -38,12 +28,12 @@ const languages = {
       chooseLanguage: 'Выберите язык / Choose language',
       choosePair: 'Выберите валютную пару',
       chooseTimeframe: 'Выберите таймфрейм',
-      analysisStarting: (pair, tf) => `Анализ для ${pair} на таймфрейме ${tf}`,
-      errorGeneratingChart: 'Ошибка при генерации графика',
+      analysisStarting: (pair, tf) => `Подписка на котировки для ${pair} (таймфрейм ${tf})`,
+      errorGeneratingChart: 'Ошибка при получении данных',
       nextAnalysis: 'Следующий анализ',
       pleaseChoosePairFirst: 'Пожалуйста, сначала выберите валютную пару',
       unknownCmd: 'Неизвестная команда',
-      jsonData: 'Данные в JSON формате:\n',
+      priceUpdate: (pair, price) => `Текущая цена ${pair}: ${price}`,
     },
   },
   en: {
@@ -59,15 +49,15 @@ const languages = {
       { label: '1 day', value: 'D' },
     ],
     texts: {
-      chooseLanguage: 'Выберите язык / Choose language',
+      chooseLanguage: 'Choose language',
       choosePair: 'Choose currency pair',
       chooseTimeframe: 'Choose timeframe',
-      analysisStarting: (pair, tf) => `Analysis for ${pair} on timeframe ${tf}`,
-      errorGeneratingChart: 'Error generating chart',
+      analysisStarting: (pair, tf) => `Subscribed to quotes for ${pair} (timeframe ${tf})`,
+      errorGeneratingChart: 'Error getting data',
       nextAnalysis: 'Next analysis',
       pleaseChoosePairFirst: 'Please choose a currency pair first',
       unknownCmd: 'Unknown command',
-      jsonData: 'Data in JSON format:\n',
+      priceUpdate: (pair, price) => `Current price ${pair}: ${price}`,
     },
   },
 };
@@ -89,151 +79,6 @@ const displayNames = {
   AUDCAD: { ru: 'AUD/CAD', en: 'AUD/CAD' },
 };
 
-// --- Аналитические функции (заглушки) ---
-function calculateSMA(closes, period) {
-  const sma = [];
-  for (let i = 0; i < closes.length; i++) {
-    if (i < period - 1) {
-      sma.push(null);
-      continue;
-    }
-    const sum = closes.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0);
-    sma.push(sum / period);
-  }
-  return sma;
-}
-function calculateRSI(closes, period) {
-  return []; // заглушка
-}
-function calculateMACD(closes) {
-  return { macd: [], signal: [], histogram: [] }; // заглушка
-}
-function calculateStochastic(klines) {
-  return { k: [], d: [] }; // заглушка
-}
-function findSupportResistance(klines) {
-  return { supports: [], resistances: [] }; // заглушка
-}
-async function generateChartImage(klines, sma5, sma15, supports, resistances, pair, timeframe, lang) {
-  const labels = klines.map(k => new Date(k.t * 1000).toLocaleString());
-  const closeData = klines.map(k => k.c);
-  const sma5Data = sma5;
-  const sma15Data = sma15;
-
-  const config = {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [
-        {
-          label: 'Close',
-          data: closeData,
-          borderColor: 'blue',
-          fill: false,
-          tension: 0.1,
-        },
-        {
-          label: 'SMA 5',
-          data: sma5Data,
-          borderColor: 'green',
-          fill: false,
-          spanGaps: true,
-          tension: 0.1,
-        },
-        {
-          label: 'SMA 15',
-          data: sma15Data,
-          borderColor: 'red',
-          fill: false,
-          spanGaps: true,
-          tension: 0.1,
-        },
-      ],
-    },
-    options: {
-      plugins: {
-        title: {
-          display: true,
-          text: `${pair} - ${timeframe}`,
-          font: { size: 20 },
-        },
-      },
-      scales: {
-        x: { display: false },
-        y: { beginAtZero: false },
-      },
-    },
-  };
-
-  return await chartJSNodeCanvas.renderToBuffer(config);
-}
-function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances, lang) {
-  return lang === 'ru'
-    ? `Аналитика для ${klines.length} свечей.\nSMA5 последняя: ${sma5[sma5.length - 1]?.toFixed(5) || 'N/A'}`
-    : `Analysis for ${klines.length} candles.\nLast SMA5: ${sma5[sma5.length - 1]?.toFixed(5) || 'N/A'}`;
-}
-
-// --- Маппинг таймфреймов в секунды для Finnhub ---
-const timeframeToFinnhub = {
-  '1': '1',
-  '5': '5',
-  '15': '15',
-  '60': '60',
-  '240': '240',
-  'D': 'D',
-};
-
-// --- Маппинг пары в символ Finnhub ---
-// Finnhub использует формат: "OANDA:EUR_USD" для форекс
-function pairToFinnhubSymbol(pair) {
-  // Если пара в формате EURUSD, преобразуем в EUR_USD
-  if (pair.length === 6) {
-    const base = pair.slice(0, 3);
-    const quote = pair.slice(3, 6);
-    return `OANDA:${base}_${quote}`;
-  }
-  return pair; // на всякий случай
-}
-
-// --- Функция получения исторических свечей с Finnhub ---
-async function fetchRealOHLC(pair, timeframeValue, count = 100) {
-  const symbol = pairToFinnhubSymbol(pair);
-  const resolution = timeframeValue; // '1', '5', '15', '60', '240', 'D'
-
-  const to = Math.floor(Date.now() / 1000);
-  // Рассчитаем from, чтобы получить примерно count свечей:
-  let secondsPerCandle;
-  if (resolution === 'D') {
-    secondsPerCandle = 86400;
-  } else {
-    secondsPerCandle = parseInt(resolution) * 60;
-  }
-  const from = to - secondsPerCandle * count;
-
-  const url = `https://finnhub.io/api/v1/stock/candle?symbol=${encodeURIComponent(symbol)}&resolution=${resolution}&from=${from}&to=${to}&token=${FINNHUB_API_KEY}`;
-
-  const response = await axios.get(url);
-
-  if (response.data.s !== 'ok') {
-    throw new Error('Ошибка получения данных с Finnhub: ' + (response.data.s || 'unknown error'));
-  }
-
-  // Формируем массив свечей с полями: t (timestamp), o, h, l, c, v
-  const klines = [];
-  for (let i = 0; i < response.data.t.length; i++) {
-    klines.push({
-      t: response.data.t[i], // unix timestamp в секундах
-      o: response.data.o[i],
-      h: response.data.h[i],
-      l: response.data.l[i],
-      c: response.data.c[i],
-      v: response.data.v[i],
-    });
-  }
-
-  return klines;
-}
-
 // --- Вспомогательные ---
 function chunkArray(arr, size) {
   const result = [];
@@ -243,7 +88,83 @@ function chunkArray(arr, size) {
   return result;
 }
 
-const historyData = {};
+// --- WS Клиент для Pocket Option ---
+class PocketOptionWSClient {
+  constructor(uid, userSecret, server) {
+    this.uid = uid;
+    this.userSecret = userSecret;
+    this.server = server;
+    this.ws = null;
+    this.subscriptions = new Set();
+    this.messageHandlers = [];
+    this.isConnected = false;
+  }
+
+  connect() {
+    this.ws = new WebSocket(this.server);
+
+    this.ws.on('open', () => {
+      this.isConnected = true;
+      console.log('WS connected');
+      // Авторизация (пример, возможно нужна корректировка)
+      const authMsg = {
+        type: 'auth',
+        uid: this.uid,
+        userSecret: this.userSecret,
+      };
+      this.ws.send(JSON.stringify(authMsg));
+      // Подписка на уже запрошенные пары
+      this.subscriptions.forEach((pair) => this.subscribe(pair));
+    });
+
+    this.ws.on('message', (data) => {
+      try {
+        const msg = JSON.parse(data);
+        this.messageHandlers.forEach((handler) => handler(msg));
+      } catch (e) {
+        console.error('WS message parse error:', e);
+      }
+    });
+
+    this.ws.on('close', () => {
+      this.isConnected = false;
+      console.log('WS disconnected, reconnecting in 5s');
+      setTimeout(() => this.connect(), 5000);
+    });
+
+    this.ws.on('error', (err) => {
+      console.error('WS error:', err);
+      this.ws.close();
+    });
+  }
+
+  subscribe(pair) {
+    if (!this.isConnected) {
+      this.subscriptions.add(pair);
+      return;
+    }
+    // Формат подписки — пример, нужно подстроить под реальный протокол
+    const subMsg = {
+      type: 'subscribe',
+      channel: 'ticker',
+      symbol: pair,
+    };
+    this.ws.send(JSON.stringify(subMsg));
+    this.subscriptions.add(pair);
+  }
+
+  addMessageHandler(handler) {
+    this.messageHandlers.push(handler);
+  }
+
+  close() {
+    if (this.ws) this.ws.close();
+  }
+}
+
+// --- Инициализация WS клиента ---
+const poWSClient = new PocketOptionWSClient(UID, USER_SECRET, PO_WS_SERVER);
+poWSClient.connect();
 
 // --- Отправка выбора пары ---
 async function sendPairSelection(ctx, lang) {
@@ -354,43 +275,22 @@ bot.on('callback_query', async (ctx) => {
       await ctx.reply(langData.texts.analysisStarting(displayNames[ctx.session.pair][lang], tf.label));
     }
 
-    const key = `${ctx.session.pair}_${tf.value}`;
+    // Подписка на котировки через WS
+    poWSClient.subscribe(ctx.session.pair);
 
-    try {
-      const klines = await fetchRealOHLC(ctx.session.pair, tf.value, 100);
-      historyData[key] = klines;
-
-      // Отправляем JSON данных в чат (с ограничением по длине)
-      const jsonText = JSON.stringify(klines, null, 2);
-      const chunkSize = 4000;
-      for (let i = 0; i < jsonText.length; i += chunkSize) {
-        await ctx.reply(langData.texts.jsonData + '```\n' + jsonText.slice(i, i + chunkSize) + '\n```', { parse_mode: 'MarkdownV2' });
+    // Отправлять пользователю текущую цену по подписке
+    const priceHandler = (msg) => {
+      if (
+        msg.type === 'ticker' &&
+        msg.symbol === ctx.session.pair &&
+        msg.price
+      ) {
+        ctx.reply(langData.texts.priceUpdate(displayNames[msg.symbol][lang], msg.price));
       }
+    };
 
-      const closes = klines.map(k => k.c);
-      const sma5 = calculateSMA(closes, 5);
-      const sma15 = calculateSMA(closes, 15);
-      const rsi = calculateRSI(closes, 14);
-      const macd = calculateMACD(closes);
-      const stochastic = calculateStochastic(klines);
-      const { supports, resistances } = findSupportResistance(klines);
+    poWSClient.addMessageHandler(priceHandler);
 
-      try {
-        const imageBuffer = await generateChartImage(klines, sma5, sma15, supports, resistances, ctx.session.pair, tf.label, lang);
-        await ctx.replyWithPhoto({ source: imageBuffer });
-      } catch (e) {
-        console.error('Ошибка генерации графика:', e);
-        await ctx.reply(langData.texts.errorGeneratingChart);
-      }
-
-      const analysisText = analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances, lang);
-      await ctx.reply(analysisText, Markup.inlineKeyboard([
-        Markup.button.callback(langData.texts.nextAnalysis, 'next_analysis'),
-      ]));
-    } catch (e) {
-      console.error('Ошибка получения данных с Finnhub:', e);
-      await ctx.reply(langData.texts.errorGeneratingChart + '\n' + e.message);
-    }
     return;
   }
 
