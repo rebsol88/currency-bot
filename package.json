@@ -2,10 +2,10 @@
   "name": "forex-analysis-bot",
   "version": "1.0.0",
   "description": "Telegram bot for forex pair analysis with real data and chart generation",
-  "main": "index.js",
+  "main": "telegram.js",
   "type": "module",
   "scripts": {
-    "start": "node index.js"
+    "start": "node telegram.js"
   },
   "dependencies": {
     "chart.js": "^3.9.1",
