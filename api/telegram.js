@@ -1,7 +1,6 @@
 import { Telegraf, Markup, session } from 'telegraf';
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
-import ChartJS from 'chart.js';
-const { Chart, registerables } = ChartJS;
+import { Chart, registerables } from 'chart.js';
 import annotationPlugin from 'chartjs-plugin-annotation';
 import fetch from 'node-fetch';
 
