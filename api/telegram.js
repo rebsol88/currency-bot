@@ -3,7 +3,8 @@ import WebSocket from 'ws';
 
 // --- Настройки ---
 const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
-const PO_WS_SERVER = 'wss://api-msk.po.market'; // Можно выбрать из списка серверов
+// Используем рабочий WS сервер Pocket Option (пример, может потребоваться обновить)
+const PO_WS_SERVER = 'wss://ws.pocketoption.com/echo/websocket';
 const UID = 91717690; // Ваш uid с сайта Pocket Option
 const USER_SECRET = 'eea7f7588a9a0d84b68e0010a0026544'; // Ваш userSecret с сайта Pocket Option
 
@@ -101,12 +102,16 @@ class PocketOptionWSClient {
   }
 
   connect() {
-    this.ws = new WebSocket(this.server);
+    this.ws = new WebSocket(this.server, {
+      headers: {
+        Origin: 'https://pocketoption.com', // Добавляем Origin, чтобы избежать 403
+      },
+    });
 
     this.ws.on('open', () => {
       this.isConnected = true;
       console.log('WS connected');
-      // Авторизация (пример, возможно нужна корректировка)
+      // Авторизация (пример, может потребовать корректировки)
       const authMsg = {
         type: 'auth',
         uid: this.uid,
@@ -149,8 +154,12 @@ class PocketOptionWSClient {
       channel: 'ticker',
       symbol: pair,
     };
-    this.ws.send(JSON.stringify(subMsg));
-    this.subscriptions.add(pair);
+    try {
+      this.ws.send(JSON.stringify(subMsg));
+      this.subscriptions.add(pair);
+    } catch (e) {
+      console.error('Error sending subscribe message:', e);
+    }
   }
 
   addMessageHandler(handler) {
