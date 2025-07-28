@@ -34,6 +34,9 @@ class PocketOptionApi {
       this.ws.on('error', (err) => {
         reject(err);
       });
+      this.ws.on('close', () => {
+        // Можно логировать закрытие, если нужно
+      });
     });
   }
 
@@ -91,9 +94,7 @@ const chartJSNodeCanvas = new ChartJSNodeCanvas({
   },
 });
 
-// === Твои языковые данные, displayNames и функции анализа ===
-
-// Языки
+// --- Языковые данные ---
 const languages = {
   ru: {
     name: 'Русский',
@@ -161,9 +162,7 @@ const displayNames = {
   AUDCAD: { ru: 'AUD/CAD', en: 'AUD/CAD' },
 };
 
-// Аналитические функции (оставлены без изменений, вставь сюда твои функции calculateSMA, calculateRSI, calculateMACD, calculateStochastic, findSupportResistance, generateChartImage, analyzeIndicators и т.д.)
-
-// Ниже пример заглушек, замени на свои оригинальные функции:
+// --- Аналитические функции (заглушки) ---
 function calculateSMA(closes, period) {
   const sma = [];
   for (let i = 0; i < closes.length; i++) {
@@ -177,32 +176,78 @@ function calculateSMA(closes, period) {
   return sma;
 }
 function calculateRSI(closes, period) {
-  // Твоя реализация RSI
   return []; // заглушка
 }
 function calculateMACD(closes) {
-  // Твоя реализация MACD
   return { macd: [], signal: [], histogram: [] }; // заглушка
 }
 function calculateStochastic(klines) {
-  // Твоя реализация стохастика
   return { k: [], d: [] }; // заглушка
 }
 function findSupportResistance(klines) {
-  // Твоя реализация поддержки и сопротивления
   return { supports: [], resistances: [] }; // заглушка
 }
 async function generateChartImage(klines, sma5, sma15, supports, resistances, pair, timeframe, lang) {
-  // Твоя реализация генерации графика с chartjs-node-canvas
-  // Возвращает Buffer с изображением
-  return Buffer.from([]); // заглушка
+  // Пример генерации простого графика с Close и SMA
+  const labels = klines.map(k => new Date(k.openTime).toLocaleString());
+  const closeData = klines.map(k => k.close);
+  const sma5Data = sma5;
+  const sma15Data = sma15;
+
+  const config = {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Close',
+          data: closeData,
+          borderColor: 'blue',
+          fill: false,
+          tension: 0.1,
+        },
+        {
+          label: 'SMA 5',
+          data: sma5Data,
+          borderColor: 'green',
+          fill: false,
+          spanGaps: true,
+          tension: 0.1,
+        },
+        {
+          label: 'SMA 15',
+          data: sma15Data,
+          borderColor: 'red',
+          fill: false,
+          spanGaps: true,
+          tension: 0.1,
+        },
+      ],
+    },
+    options: {
+      plugins: {
+        title: {
+          display: true,
+          text: `${pair} - ${timeframe}`,
+          font: { size: 20 },
+        },
+      },
+      scales: {
+        x: { display: false },
+        y: { beginAtZero: false },
+      },
+    },
+  };
+
+  return await chartJSNodeCanvas.renderToBuffer(config);
 }
 function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances, lang) {
-  // Твоя реализация анализа индикаторов и генерации текста
-  return "Аналитика здесь"; // заглушка
+  return lang === 'ru'
+    ? `Аналитика для ${klines.length} свечей.\nSMA5 последняя: ${sma5[sma5.length - 1]?.toFixed(5) || 'N/A'}`
+    : `Analysis for ${klines.length} candles.\nLast SMA5: ${sma5[sma5.length - 1]?.toFixed(5) || 'N/A'}`;
 }
 
-// --- Маппинг таймфреймов в секунды для API ---
+// --- Маппинг таймфреймов в секунды ---
 const timeframeToSeconds = {
   '1m': 60,
   '5m': 300,
@@ -212,7 +257,7 @@ const timeframeToSeconds = {
   '1d': 86400,
 };
 
-// Функция получения реальных свечей через API
+// --- Получение свечей ---
 async function fetchRealOHLC(pair, timeframeValue, count = 100) {
   const api = new PocketOptionApi();
   await api.connect();
@@ -227,7 +272,6 @@ async function fetchRealOHLC(pair, timeframeValue, count = 100) {
     api.close();
   }
 
-  // Преобразуем формат
   const klines = candles.map(c => ({
     openTime: c.at * 1000,
     open: c.open,
@@ -241,7 +285,7 @@ async function fetchRealOHLC(pair, timeframeValue, count = 100) {
   return klines;
 }
 
-// --- Вспомогательные функции ---
+// --- Вспомогательные ---
 function chunkArray(arr, size) {
   const result = [];
   for (let i = 0; i < arr.length; i += size) {
@@ -252,8 +296,7 @@ function chunkArray(arr, size) {
 
 const historyData = {};
 
-// --- Telegram Bot ---
-
+// --- Отправка выбора пары ---
 async function sendPairSelection(ctx, lang) {
   const langData = languages[lang];
   const mainButtons = langData.pairsMain.map(p => Markup.button.callback(displayNames[p][lang], displayNames[p][lang]));
@@ -276,9 +319,14 @@ async function sendPairSelection(ctx, lang) {
     keyboardFinal.push([leftButtons[1], rightButtons[1]]);
   }
 
-  await ctx.editMessageText(langData.texts.choosePair, Markup.inlineKeyboard(keyboardFinal));
+  try {
+    await ctx.editMessageText(langData.texts.choosePair, Markup.inlineKeyboard(keyboardFinal));
+  } catch {
+    await ctx.reply(langData.texts.choosePair, Markup.inlineKeyboard(keyboardFinal));
+  }
 }
 
+// --- Обработчики бота ---
 bot.start(async (ctx) => {
   ctx.session = {};
   const buttons = [
@@ -318,7 +366,7 @@ bot.on('callback_query', async (ctx) => {
     return;
   }
 
-  // Проверка пары
+  // Проверка выбора пары
   const pairEntry = Object.entries(displayNames).find(([, names]) => names[lang] === data);
   if (pairEntry) {
     const pair = pairEntry[0];
@@ -328,11 +376,15 @@ bot.on('callback_query', async (ctx) => {
     const tfButtons = langData.timeframes.map(tf => Markup.button.callback(tf.label, tf.label));
     const inlineTfButtons = chunkArray(tfButtons, 2);
 
-    await ctx.editMessageText(langData.texts.chooseTimeframe, Markup.inlineKeyboard(inlineTfButtons));
+    try {
+      await ctx.editMessageText(langData.texts.chooseTimeframe, Markup.inlineKeyboard(inlineTfButtons));
+    } catch {
+      await ctx.reply(langData.texts.chooseTimeframe, Markup.inlineKeyboard(inlineTfButtons));
+    }
     return;
   }
 
-  // Проверка таймфрейма
+  // Проверка выбора таймфрейма
   const tf = langData.timeframes.find(t => t.label === data);
   if (tf) {
     if (!ctx.session.pair) {
@@ -342,7 +394,11 @@ bot.on('callback_query', async (ctx) => {
     ctx.session.timeframe = tf;
     await ctx.answerCbQuery();
 
-    await ctx.editMessageText(langData.texts.analysisStarting(displayNames[ctx.session.pair][lang], tf.label));
+    try {
+      await ctx.editMessageText(langData.texts.analysisStarting(displayNames[ctx.session.pair][lang], tf.label));
+    } catch {
+      await ctx.reply(langData.texts.analysisStarting(displayNames[ctx.session.pair][lang], tf.label));
+    }
 
     const key = `${ctx.session.pair}_${tf.value}`;
 
@@ -374,12 +430,12 @@ bot.on('callback_query', async (ctx) => {
       console.error('Ошибка получения данных с API:', e);
       await ctx.reply(langData.texts.errorGeneratingChart + '\n' + e.message);
     }
-
     return;
   }
 
   await ctx.answerCbQuery(langData.texts.unknownCmd);
 });
 
+// Запуск бота
 bot.launch();
 console.log('Бот запущен');
