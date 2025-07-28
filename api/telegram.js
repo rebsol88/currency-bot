@@ -10,6 +10,7 @@ Chart.register(annotationPlugin);
 
 // --- Настройки ---
 const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
+const RAPIDAPI_KEY = 'ВАШ_RAPIDAPI_KEY'; // <-- Вставьте сюда ваш RapidAPI ключ
 const bot = new Telegraf(BOT_TOKEN);
 bot.use(session());
 
@@ -99,15 +100,6 @@ const displayNames = {
   NZDJPY: { ru: 'NZD/JPY', en: 'NZD/JPY' },
 };
 
-// Заглушки функций (замените своими)
-async function fetchOHLC(pair, timeframeMinutes, count) { /* ... */ return null; }
-function calculateSMA(closes, period) { /* ... */ return []; }
-function calculateRSI(closes, period) { /* ... */ return []; }
-function calculateMACD(closes) { /* ... */ return { macdLine: [], signalLine: [], histogram: [] }; }
-function calculateStochastic(klines) { /* ... */ return []; }
-function findSupportResistance(klines) { return { supports: [], resistances: [] }; }
-function analyzeIndicators() { return 'Анализ пока не реализован.'; }
-async function generateChartImage() { return Buffer.alloc(0); }
 function chunkArray(arr, size) {
   const result = [];
   for(let i = 0; i < arr.length; i += size) {
@@ -116,154 +108,168 @@ function chunkArray(arr, size) {
   return result;
 }
 
-// --- Новая функция получения котировок с exchangerate.host ---
-async function fetchForexPrices(pairs) {
-  const uniqueBases = new Set(pairs.map(p => p.slice(0,3)));
-  const prices = {};
+// --- Функция для получения исторических данных с Yahoo Finance через RapidAPI ---
+async function fetchOHLC(pair, timeframeMinutes, count) {
+  // Yahoo Finance API через RapidAPI требует символы в формате: "EURUSD=X"
+  // Для форекс пар добавляем "=X" в конец
+  const symbol = pair + '=X';
 
-  for (const base of uniqueBases) {
-    const targets = pairs.filter(p => p.startsWith(base)).map(p => p.slice(3));
-    if (targets.length === 0) continue;
+  // Определяем интервал для Yahoo Finance API
+  // Поддерживаемые интервалы: 1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo
+  // Мы будем маппить наши таймфреймы к поддерживаемым:
+  let interval = '1d';
+  if (timeframeMinutes === 1) interval = '1m';
+  else if (timeframeMinutes === 5) interval = '5m';
+  else if (timeframeMinutes === 15) interval = '15m';
+  else if (timeframeMinutes === 60) interval = '60m';
+  else if (timeframeMinutes === 240) interval = '1h'; // 4 часа - нет прямого, берем 1h (60m)
+  else if (timeframeMinutes === 1440) interval = '1d';
 
-    const url = `https://api.exchangerate.host/latest?base=${base}&symbols=${targets.join(',')}`;
-    try {
-      const res = await fetch(url);
-      const data = await res.json();
-      if (data && data.rates) {
-        for (const [quote, rate] of Object.entries(data.rates)) {
-          const pair = base + quote;
-          if (pairs.includes(pair)) {
-            prices[pair] = rate;
-          }
-        }
-      }
-    } catch (e) {
-      console.error('Ошибка получения курсов:', e);
-    }
-  }
-  return prices;
-}
+  // Параметр range - сколько данных брать
+  // Для минутных интервалов можно брать '1d', '5d', '1mo' и т.п.
+  // Для дневных - '1mo', '3mo', '6mo' и т.п.
+  // Для упрощения возьмем range исходя из count и timeframe:
+  let range = '1mo'; // по умолчанию месяц
+  if (timeframeMinutes <= 15) range = '5d';
+  else if (timeframeMinutes === 60) range = '1mo';
+  else if (timeframeMinutes === 1440) range = '3mo';
 
-async function sendPairSelection(ctx, lang) {
-  const langData = languages[lang];
-  const mainButtons = langData.pairsMain.map(p => Markup.button.callback(displayNames[p][lang], displayNames[p][lang]));
-  const mainKeyboard = chunkArray(mainButtons, 2);
+  const url = `https://apidojo-yahoo-finance-v1.p.rapidapi.com/market/get-chart?region=US&lang=en&symbol=${symbol}&interval=${interval}&range=${range}`;
+
   try {
-    await ctx.editMessageText(langData.texts.choosePair, Markup.inlineKeyboard(mainKeyboard));
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'X-RapidAPI-Key': RAPIDAPI_KEY,
+        'X-RapidAPI-Host': 'apidojo-yahoo-finance-v1.p.rapidapi.com',
+      },
+    });
+    if (!res.ok) {
+      console.error(`Yahoo Finance API error: ${res.status} ${res.statusText}`);
+      return null;
+    }
+    const data = await res.json();
+    if (!data.chart || !data.chart.result || !data.chart.result[0]) {
+      console.error('Yahoo Finance API returned no data');
+      return null;
+    }
+    const result = data.chart.result[0];
+    const timestamps = result.timestamp;
+    const indicators = result.indicators?.quote?.[0];
+    if (!timestamps || !indicators) return null;
+
+    // Формируем массив OHLC объектов
+    const klines = [];
+    for (let i = 0; i < timestamps.length && klines.length < count; i++) {
+      const o = indicators.open[i];
+      const h = indicators.high[i];
+      const l = indicators.low[i];
+      const c = indicators.close[i];
+      const v = indicators.volume[i];
+      if ([o, h, l, c].some(x => x === undefined || x === null)) continue; // пропускаем неполные данные
+      klines.push({
+        time: timestamps[i] * 1000, // в мс
+        open: o,
+        high: h,
+        low: l,
+        close: c,
+        volume: v,
+      });
+    }
+    return klines;
   } catch (e) {
-    if (e.description && e.description.includes('message is not modified')) return;
-    throw e;
+    console.error('Ошибка запроса Yahoo Finance:', e);
+    return null;
   }
 }
 
-const historyData = {};
+// --- Индикаторы ---
 
-bot.start(async (ctx) => {
-  ctx.session = {};
-  const buttons = [
-    Markup.button.callback(languages.ru.name, 'lang_ru'),
-    Markup.button.callback(languages.en.name, 'lang_en'),
-  ];
-  await ctx.reply(languages.ru.texts.chooseLanguage, Markup.inlineKeyboard(buttons));
-});
-
-bot.action(/lang_(.+)/, async (ctx) => {
-  const lang = ctx.match[1];
-  if (!languages[lang]) {
-    await ctx.answerCbQuery('Unsupported language');
-    return;
-  }
-  ctx.session.lang = lang;
-  await ctx.answerCbQuery();
-  await sendPairSelection(ctx, lang);
-});
-
-bot.on('callback_query', async (ctx) => {
-  const data = ctx.callbackQuery.data;
-  const lang = ctx.session.lang || 'ru';
-  const langData = languages[lang];
-
-  if (data === 'noop') {
-    await ctx.answerCbQuery();
-    return;
-  }
-
-  if (data === 'next_analysis') {
-    await ctx.answerCbQuery();
-    ctx.session.pair = null;
-    ctx.session.timeframe = null;
-    await sendPairSelection(ctx, lang);
-    return;
-  }
-
-  const pairEntry = Object.entries(displayNames).find(([, names]) => names[lang] === data);
-  if (pairEntry) {
-    const pair = pairEntry[0];
-    ctx.session.pair = pair;
-    await ctx.answerCbQuery();
-
-    const tfButtons = langData.timeframes.map(tf => Markup.button.callback(tf.label, tf.label));
-    const inlineTfButtons = chunkArray(tfButtons, 2);
-
-    await ctx.editMessageText(langData.texts.chooseTimeframe, Markup.inlineKeyboard(inlineTfButtons));
-    return;
-  }
-
-  const tf = langData.timeframes.find(t => t.label === data);
-  if (tf) {
-    if (!ctx.session.pair) {
-      await ctx.answerCbQuery(langData.texts.pleaseChoosePairFirst);
-      return;
+function calculateSMA(closes, period) {
+  const sma = [];
+  for (let i = 0; i < closes.length; i++) {
+    if (i < period - 1) {
+      sma.push(null);
+      continue;
     }
-    ctx.session.timeframe = tf;
-    await ctx.answerCbQuery();
-
-    // Получаем текущие котировки валютных пар
-    const prices = await fetchForexPrices(languages[lang].pairsMain);
-
-    if (prices && prices[ctx.session.pair]) {
-      await ctx.editMessageText(langData.texts.analysisStarting(displayNames[ctx.session.pair][lang], tf.label));
-      await ctx.reply(langData.texts.priceNow(displayNames[ctx.session.pair][lang], prices[ctx.session.pair]));
-    } else {
-      await ctx.reply(langData.texts.errorGeneratingChart);
+    let sum = 0;
+    for (let j = i - period + 1; j <= i; j++) {
+      sum += closes[j];
     }
+    sma.push(sum / period);
+  }
+  return sma;
+}
 
-    // Пример вызова анализа и генерации графиков оставлен в комментариях
-    /*
-    const klines = await fetchOHLC(ctx.session.pair, tf.minutes, 100);
-    if (!klines) {
-      await ctx.reply(langData.texts.errorGeneratingChart);
-      return;
-    }
-    historyData[`${ctx.session.pair}_${tf.value}`] = klines;
+function calculateRSI(closes, period) {
+  const rsi = [];
+  let gains = 0;
+  let losses = 0;
 
-    const closes = klines.map(k => k.close);
-    const sma5 = calculateSMA(closes, 5);
-    const sma15 = calculateSMA(closes, 15);
-    const rsi = calculateRSI(closes, 14);
-    const macd = calculateMACD(closes);
-    const stochastic = calculateStochastic(klines);
-    const { supports, resistances } = findSupportResistance(klines);
+  for (let i = 1; i <= period; i++) {
+    const diff = closes[i] - closes[i - 1];
+    if (diff >= 0) gains += diff;
+    else losses -= diff;
+  }
+  let avgGain = gains / period;
+  let avgLoss = losses / period;
+  rsi[period] = avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss));
 
-    try {
-      const imageBuffer = await generateChartImage(klines, sma5, sma15, supports, resistances, ctx.session.pair, tf.label, lang);
-      await ctx.replyWithPhoto({ source: imageBuffer });
-    } catch (e) {
-      console.error('Ошибка генерации графика:', e);
-      await ctx.reply(langData.texts.errorGeneratingChart);
-    }
-
-    const analysisText = analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances, lang);
-    await ctx.reply(analysisText, Markup.inlineKeyboard([
-      Markup.button.callback(langData.texts.nextAnalysis, 'next_analysis')
-    ]));
-    */
-
-    return;
+  for (let i = period + 1; i < closes.length; i++) {
+    const diff = closes[i] - closes[i - 1];
+    let gain = diff > 0 ? diff : 0;
+    let loss = diff < 0 ? -diff : 0;
+    avgGain = (avgGain * (period -1) + gain) / period;
+    avgLoss = (avgLoss * (period -1) + loss) / period;
+    rsi[i] = avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss));
   }
 
-  await ctx.answerCbQuery(langData.texts.unknownCmd);
-});
+  // Заполняем null для первых period элементов
+  for (let i = 0; i < period; i++) {
+    if (rsi[i] === undefined) rsi[i] = null;
+  }
+  return rsi;
+}
 
-bot.launch();
-console.log('Бот запущен и готов к работе');
+function calculateMACD(closes) {
+  const ema = (data, period) => {
+    const k = 2 / (period + 1);
+    const emaArr = [];
+    emaArr[0] = data[0];
+    for (let i = 1; i < data.length; i++) {
+      emaArr[i] = data[i] * k + emaArr[i - 1] * (1 - k);
+    }
+    return emaArr;
+  };
+  const ema12 = ema(closes, 12);
+  const ema26 = ema(closes, 26);
+  const macdLine = ema12.map((v, i) => v - ema26[i]);
+  const signalLine = ema(macdLine.filter(v => v !== undefined && v !== null), 9);
+  // Подгоняем длины signalLine к macdLine (signalLine короче на 8)
+  const fullSignalLine = Array(macdLine.length - signalLine.length).fill(null).concat(signalLine);
+  const histogram = macdLine.map((v, i) => {
+    if (v === null || fullSignalLine[i] === null) return null;
+    return v - fullSignalLine[i];
+  });
+  return { macdLine, signalLine: fullSignalLine, histogram };
+}
+
+function calculateStochastic(klines, kPeriod = 14, dPeriod = 3) {
+  const kValues = [];
+  const dValues = [];
+  for (let i = 0; i < klines.length; i++) {
+    if (i < kPeriod - 1) {
+      kValues.push(null);
+      continue;
+    }
+    let highestHigh = -Infinity;
+    let lowestLow = Infinity;
+    for (let j = i - kPeriod + 1; j <= i; j++) {
+      if (klines[j].high > highestHigh) highestHigh = klines[j].high;
+      if (klines[j].low < lowestLow) lowestLow = klines[j].low;
+    }
+    const close = klines[i].close;
+    const k = ((close - lowestLow) / (highestHigh - lowestLow)) * 100;
+    kValues.push(k);
+  }
+  for (let i =
