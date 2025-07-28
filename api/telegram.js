@@ -3,10 +3,10 @@ import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
 import Chart from 'chart.js/auto/auto.js';
 import annotationPlugin from 'chartjs-plugin-annotation';
 import axios from 'axios';
-import * as cheerio from 'cheerio';  // <-- исправлено здесь
 
 // --- Настройки ---
 const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
+const FINNHUB_API_KEY = 'a754732283e243e4ba7cf89d3223bbef';
 const bot = new Telegraf(BOT_TOKEN);
 bot.use(session());
 
@@ -27,12 +27,12 @@ const languages = {
     pairsMain: ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'USDCAD', 'AUDUSD', 'NZDUSD'],
     pairsOTC: ['EURJPY', 'GBPJPY', 'EURGBP', 'EURCHF', 'AUDJPY', 'CHFJPY', 'AUDCAD'],
     timeframes: [
-      { label: '1 мин', value: '1m' },
-      { label: '5 мин', value: '5m' },
-      { label: '15 мин', value: '15m' },
-      { label: '1 час', value: '1h' },
-      { label: '4 часа', value: '4h' },
-      { label: '1 день', value: '1d' },
+      { label: '1 мин', value: '1' },
+      { label: '5 мин', value: '5' },
+      { label: '15 мин', value: '15' },
+      { label: '1 час', value: '60' },
+      { label: '4 часа', value: '240' },
+      { label: '1 день', value: 'D' },
     ],
     texts: {
       chooseLanguage: 'Выберите язык / Choose language',
@@ -51,12 +51,12 @@ const languages = {
     pairsMain: ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'USDCAD', 'AUDUSD', 'NZDUSD'],
     pairsOTC: ['EURJPY', 'GBPJPY', 'EURGBP', 'EURCHF', 'AUDJPY', 'CHFJPY', 'AUDCAD'],
     timeframes: [
-      { label: '1 min', value: '1m' },
-      { label: '5 min', value: '5m' },
-      { label: '15 min', value: '15m' },
-      { label: '1 hour', value: '1h' },
-      { label: '4 hours', value: '4h' },
-      { label: '1 day', value: '1d' },
+      { label: '1 min', value: '1' },
+      { label: '5 min', value: '5' },
+      { label: '15 min', value: '15' },
+      { label: '1 hour', value: '60' },
+      { label: '4 hours', value: '240' },
+      { label: '1 day', value: 'D' },
     ],
     texts: {
       chooseLanguage: 'Выберите язык / Choose language',
@@ -115,8 +115,8 @@ function findSupportResistance(klines) {
   return { supports: [], resistances: [] }; // заглушка
 }
 async function generateChartImage(klines, sma5, sma15, supports, resistances, pair, timeframe, lang) {
-  const labels = klines.map(k => new Date(k.openTime).toLocaleString());
-  const closeData = klines.map(k => k.close);
+  const labels = klines.map(k => new Date(k.t * 1000).toLocaleString());
+  const closeData = klines.map(k => k.c);
   const sma5Data = sma5;
   const sma15Data = sma15;
 
@@ -173,154 +173,63 @@ function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports,
     : `Analysis for ${klines.length} candles.\nLast SMA5: ${sma5[sma5.length - 1]?.toFixed(5) || 'N/A'}`;
 }
 
-// --- Маппинг таймфреймов в секунды ---
-const timeframeToSeconds = {
-  '1m': 60,
-  '5m': 300,
-  '15m': 900,
-  '1h': 3600,
-  '4h': 14400,
-  '1d': 86400,
+// --- Маппинг таймфреймов в секунды для Finnhub ---
+const timeframeToFinnhub = {
+  '1': '1',
+  '5': '5',
+  '15': '15',
+  '60': '60',
+  '240': '240',
+  'D': 'D',
 };
 
-// --- Маппинг пары в формат Investing.com URL ---
-function pairToInvestingUrl(pair) {
-  const base = pair.slice(0, 3);
-  const quote = pair.slice(3, 6);
-  return `https://www.investing.com/currencies/${base.toLowerCase()}-${quote.toLowerCase()}`;
+// --- Маппинг пары в символ Finnhub ---
+// Finnhub использует формат: "OANDA:EUR_USD" для форекс
+function pairToFinnhubSymbol(pair) {
+  // Если пара в формате EURUSD, преобразуем в EUR_USD
+  if (pair.length === 6) {
+    const base = pair.slice(0, 3);
+    const quote = pair.slice(3, 6);
+    return `OANDA:${base}_${quote}`;
+  }
+  return pair; // на всякий случай
 }
 
-// --- Маппинг таймфрейма в параметр Investing.com ---
-const timeframeMapInvesting = {
-  '1m': '1m',
-  '5m': '5m',
-  '15m': '15m',
-  '1h': '60',
-  '4h': '240',
-  '1d': 'D',
-};
-
-// --- Универсальная функция поиска curr_id ---
-async function findCurrId($, pair) {
-  // 1. Поиск pair_id = 12345;
-  const scripts = $('script').get();
-  for (const script of scripts) {
-    const text = $(script).html();
-    if (!text) continue;
-    const match = text.match(/pair_id\s*=\s*(\d+)/);
-    if (match) {
-      return match[1];
-    }
-  }
-  // 2. Поиск "pairId":12345 в JSON
-  for (const script of scripts) {
-    const text = $(script).html();
-    if (!text) continue;
-    const match = text.match(/"pairId"\s*:\s*(\d+)/);
-    if (match) {
-      return match[1];
-    }
-  }
-  // 3. Поиск в meta-тегах
-  const meta = $('meta[name="instrument_id"]');
-  if (meta.length) {
-    return meta.attr('content');
-  }
-  throw new Error('Cannot find curr_id for pair ' + pair);
-}
-
-// --- Функция получения исторических свечей с Investing.com ---
+// --- Функция получения исторических свечей с Finnhub ---
 async function fetchRealOHLC(pair, timeframeValue, count = 100) {
-  if (!timeframeMapInvesting[timeframeValue]) {
-    throw new Error('Unsupported timeframe: ' + timeframeValue);
+  const symbol = pairToFinnhubSymbol(pair);
+  const resolution = timeframeValue; // '1', '5', '15', '60', '240', 'D'
+
+  const to = Math.floor(Date.now() / 1000);
+  // Рассчитаем from, чтобы получить примерно count свечей:
+  let secondsPerCandle;
+  if (resolution === 'D') {
+    secondsPerCandle = 86400;
+  } else {
+    secondsPerCandle = parseInt(resolution) * 60;
   }
-  const url = pairToInvestingUrl(pair);
-  const interval = timeframeMapInvesting[timeframeValue];
+  const from = to - secondsPerCandle * count;
 
-  const headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0 Safari/537.36',
-    'Accept-Language': 'en-US,en;q=0.9',
-  };
+  const url = `https://finnhub.io/api/v1/stock/candle?symbol=${encodeURIComponent(symbol)}&resolution=${resolution}&from=${from}&to=${to}&token=${FINNHUB_API_KEY}`;
 
-  const mainPageResponse = await axios.get(url, { headers });
-  const $ = cheerio.load(mainPageResponse.data);
+  const response = await axios.get(url);
 
-  const curr_id = await findCurrId($, pair);
-
-  const endDate = new Date();
-  const startDate = new Date(endDate.getTime() - 365 * 24 * 3600 * 1000);
-
-  function formatDate(d) {
-    const mm = (d.getMonth() + 1).toString().padStart(2, '0');
-    const dd = d.getDate().toString().padStart(2, '0');
-    const yyyy = d.getFullYear();
-    return `${mm}/${dd}/${yyyy}`;
+  if (response.data.s !== 'ok') {
+    throw new Error('Ошибка получения данных с Finnhub: ' + (response.data.s || 'unknown error'));
   }
 
-  const postUrl = 'https://www.investing.com/instruments/HistoricalDataAjax';
-
-  const params = new URLSearchParams();
-  params.append('curr_id', curr_id);
-  params.append('st_date', formatDate(startDate));
-  params.append('end_date', formatDate(endDate));
-  params.append('interval', interval);
-  params.append('sort_col', 'date');
-  params.append('sort_ord', 'DESC');
-  params.append('action', 'historical_data');
-
-  const postHeaders = {
-    ...headers,
-    'Content-Type': 'application/x-www-form-urlencoded',
-    'X-Requested-With': 'XMLHttpRequest',
-    'Referer': url,
-  };
-
-  const response = await axios.post(postUrl, params.toString(), { headers: postHeaders });
-
-  const $data = cheerio.load(response.data);
-
+  // Формируем массив свечей с полями: t (timestamp), o, h, l, c, v
   const klines = [];
-  $data('#curr_table tbody tr').each((i, el) => {
-    if (i >= count) return false;
-    const tds = $data(el).find('td');
-    if (tds.length < 6) return;
-    const dateStr = $data(tds[0]).text().trim();
-    const openStr = $data(tds[1]).text().trim().replace(/,/g, '');
-    const highStr = $data(tds[2]).text().trim().replace(/,/g, '');
-    const lowStr = $data(tds[3]).text().trim().replace(/,/g, '');
-    const closeStr = $data(tds[4]).text().trim().replace(/,/g, '');
-    const volumeStr = $data(tds[5]).text().trim().replace(/,/g, '').replace(/K/g, '000').replace(/M/g, '000000');
-
-    let openTime = Date.parse(dateStr);
-    if (isNaN(openTime)) return;
-
-    const tfSec = timeframeToSeconds[timeframeValue] || 60;
-    const closeTime = openTime + tfSec * 1000 - 1;
-
-    const open = parseFloat(openStr);
-    const high = parseFloat(highStr);
-    const low = parseFloat(lowStr);
-    const close = parseFloat(closeStr);
-    const volume = parseFloat(volumeStr) || 0;
-
-    if ([open, high, low, close].some(isNaN)) return;
-
+  for (let i = 0; i < response.data.t.length; i++) {
     klines.push({
-      openTime,
-      open,
-      high,
-      low,
-      close,
-      closeTime,
-      volume,
+      t: response.data.t[i], // unix timestamp в секундах
+      o: response.data.o[i],
+      h: response.data.h[i],
+      l: response.data.l[i],
+      c: response.data.c[i],
+      v: response.data.v[i],
     });
-  });
-
-  if (klines.length === 0) {
-    throw new Error('No candle data parsed from Investing.com');
   }
-
-  klines.sort((a, b) => a.openTime - b.openTime);
 
   return klines;
 }
@@ -453,13 +362,12 @@ bot.on('callback_query', async (ctx) => {
 
       // Отправляем JSON данных в чат (с ограничением по длине)
       const jsonText = JSON.stringify(klines, null, 2);
-      // Telegram ограничивает длину сообщения, разбиваем на части по 4000 символов
       const chunkSize = 4000;
       for (let i = 0; i < jsonText.length; i += chunkSize) {
         await ctx.reply(langData.texts.jsonData + '```\n' + jsonText.slice(i, i + chunkSize) + '\n```', { parse_mode: 'MarkdownV2' });
       }
 
-      const closes = klines.map(k => k.close);
+      const closes = klines.map(k => k.c);
       const sma5 = calculateSMA(closes, 5);
       const sma15 = calculateSMA(closes, 15);
       const rsi = calculateRSI(closes, 14);
@@ -480,7 +388,7 @@ bot.on('callback_query', async (ctx) => {
         Markup.button.callback(langData.texts.nextAnalysis, 'next_analysis'),
       ]));
     } catch (e) {
-      console.error('Ошибка получения данных с Investing.com:', e);
+      console.error('Ошибка получения данных с Finnhub:', e);
       await ctx.reply(langData.texts.errorGeneratingChart + '\n' + e.message);
     }
     return;
