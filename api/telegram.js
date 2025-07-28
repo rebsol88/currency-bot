@@ -82,7 +82,7 @@ class PocketOptionApi {
 // --- Настройки ---
 const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
 const bot = new Telegraf(BOT_TOKEN);
-bot.use(session());
+bot.use(session()); // подключаем сессию до обработчиков
 
 const width = 800;
 const height = 600;
@@ -328,7 +328,7 @@ async function sendPairSelection(ctx, lang) {
 
 // --- Обработчики бота ---
 bot.start(async (ctx) => {
-  ctx.session = {};
+  ctx.session = ctx.session || {};
   const buttons = [
     Markup.button.callback(languages.ru.name, 'lang_ru'),
     Markup.button.callback(languages.en.name, 'lang_en'),
@@ -342,6 +342,7 @@ bot.action(/lang_(.+)/, async (ctx) => {
     await ctx.answerCbQuery('Unsupported language');
     return;
   }
+  ctx.session = ctx.session || {};
   ctx.session.lang = lang;
   await ctx.answerCbQuery();
 
@@ -349,6 +350,7 @@ bot.action(/lang_(.+)/, async (ctx) => {
 });
 
 bot.on('callback_query', async (ctx) => {
+  ctx.session = ctx.session || {};
   const data = ctx.callbackQuery.data;
   const lang = ctx.session.lang || 'ru';
   const langData = languages[lang];
