@@ -2,108 +2,13 @@ import { Telegraf, Markup, session } from 'telegraf';
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
 import Chart from 'chart.js/auto/auto.js';
 import annotationPlugin from 'chartjs-plugin-annotation';
-import WebSocket from 'ws';
-
-// --- PocketOptionApi класс с таймаутами и обработкой ошибок ---
-class PocketOptionApi {
-  constructor() {
-    this.ws = null;
-    this.requestId = 1;
-    this.callbacks = new Map();
-  }
-
-  connect() {
-    return new Promise((resolve, reject) => {
-      this.ws = new WebSocket('wss://iqoption.com/echo/websocket');
-
-      const connectTimeout = setTimeout(() => {
-        reject(new Error('WebSocket connection timeout'));
-        this.ws.terminate();
-      }, 10000);
-
-      this.ws.on('open', () => {
-        clearTimeout(connectTimeout);
-        resolve();
-      });
-
-      this.ws.on('message', (data) => {
-        let msg;
-        try {
-          msg = JSON.parse(data);
-        } catch {
-          return;
-        }
-        if (msg && msg.msg_id && this.callbacks.has(msg.msg_id)) {
-          const cb = this.callbacks.get(msg.msg_id);
-          cb(msg);
-          this.callbacks.delete(msg.msg_id);
-        }
-      });
-
-      this.ws.on('error', (err) => {
-        reject(err);
-      });
-
-      this.ws.on('close', () => {
-        // Можно логировать закрытие, если нужно
-      });
-    });
-  }
-
-  sendRequest(name, msg) {
-    return new Promise((resolve, reject) => {
-      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-        reject(new Error('WebSocket is not connected'));
-        return;
-      }
-      const id = this.requestId++;
-      const request = {
-        name,
-        msg,
-        msg_id: id,
-      };
-
-      const timeout = setTimeout(() => {
-        if (this.callbacks.has(id)) {
-          this.callbacks.delete(id);
-          reject(new Error('Request timeout'));
-        }
-      }, 10000);
-
-      this.callbacks.set(id, (data) => {
-        clearTimeout(timeout);
-        resolve(data);
-      });
-
-      this.ws.send(JSON.stringify(request));
-    });
-  }
-
-  async getCandles(instrument, timeframe, count) {
-    const response = await this.sendRequest('get-candles', {
-      instrument,
-      timeframe,
-      count,
-    });
-
-    if (response && response.msg && response.msg.candles) {
-      return response.msg.candles;
-    }
-    throw new Error('No candles data received');
-  }
-
-  close() {
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
-    }
-  }
-}
+import axios from 'axios';
+import cheerio from 'cheerio';
 
 // --- Настройки ---
 const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
 const bot = new Telegraf(BOT_TOKEN);
-bot.use(session()); // подключаем сессию до обработчиков
+bot.use(session());
 
 const width = 800;
 const height = 600;
@@ -276,35 +181,160 @@ const timeframeToSeconds = {
   '1d': 86400,
 };
 
-// --- Получение свечей с таймаутом и обработкой ошибок ---
+// --- Маппинг пары в формат Investing.com URL ---
+// Формат: https://www.investing.com/currencies/{pair-lowercase-with-hyphen}
+// Например, EURUSD -> eur-usd
+// Для некоторых пар с нестандартным названием можно добавить исключения, но у вас пары стандартные
+function pairToInvestingUrl(pair) {
+  // Разбиваем на две валюты
+  const base = pair.slice(0, 3);
+  const quote = pair.slice(3, 6);
+  return `https://www.investing.com/currencies/${base.toLowerCase()}-${quote.toLowerCase()}`;
+}
+
+// --- Маппинг таймфрейма в параметр Investing.com для исторических данных ---
+// Поддерживаемые интервалы на Investing.com для истории:
+// 1m: '1m', 5m: '5m', 15m: '15m', 1h: '60', 4h: '240', 1d: 'D'
+// В URL параметре 'interval'
+const timeframeMapInvesting = {
+  '1m': '1m',
+  '5m': '5m',
+  '15m': '15m',
+  '1h': '60',
+  '4h': '240',
+  '1d': 'D',
+};
+
+// --- Функция получения исторических свечей с Investing.com ---
+// Используем публичную историческую страницу с таблицей свечей и парсим с неё
+// Ограничения: Investing.com может менять структуру, и частые запросы могут блокировать IP
+// В этом примере парсим последние 100 свечей по выбранному таймфрейму
 async function fetchRealOHLC(pair, timeframeValue, count = 100) {
-  const api = new PocketOptionApi();
-  try {
-    await api.connect();
-
-    const tfSeconds = timeframeToSeconds[timeframeValue];
-    if (!tfSeconds) throw new Error('Unsupported timeframe: ' + timeframeValue);
-
-    // Таймаут 15 секунд на получение свечей
-    const candles = await Promise.race([
-      api.getCandles(pair, tfSeconds, count),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout getting candles')), 15000))
-    ]);
-
-    const klines = candles.map(c => ({
-      openTime: c.at * 1000,
-      open: c.open,
-      high: c.max,
-      low: c.min,
-      close: c.close,
-      closeTime: c.at * 1000 + tfSeconds * 1000 - 1,
-      volume: c.volume,
-    }));
-
-    return klines;
-  } finally {
-    api.close();
+  if (!timeframeMapInvesting[timeframeValue]) {
+    throw new Error('Unsupported timeframe: ' + timeframeValue);
   }
+  const url = pairToInvestingUrl(pair);
+  const interval = timeframeMapInvesting[timeframeValue];
+
+  // Для исторических данных Investing.com использует AJAX-запрос к URL вида:
+  // https://www.investing.com/instruments/HistoricalDataAjax
+  // с POST параметрами: action=historical_data, curr_id, st_date, end_date, interval, sort_col, sort_ord, etc.
+  // Но curr_id нужен, его можно получить парсингом главной страницы пары
+  // Для упрощения — будем парсить таблицу с историей с сайта (ограничено и не идеально)
+
+  // 1) Получаем страницу пары, чтобы найти curr_id
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0 Safari/537.36',
+    'Accept-Language': 'en-US,en;q=0.9',
+  };
+
+  const mainPageResponse = await axios.get(url, { headers });
+  const $ = cheerio.load(mainPageResponse.data);
+
+  // curr_id находится в скриптах, например:
+  // var pair_id = 123456;
+  // Попробуем найти через regex
+  let curr_id = null;
+  const scripts = $('script').get();
+  for (const script of scripts) {
+    const text = $(script).html();
+    if (!text) continue;
+    const match = text.match(/pair_id\s*=\s*(\d+)/);
+    if (match) {
+      curr_id = match[1];
+      break;
+    }
+  }
+  if (!curr_id) {
+    // Альтернативно можно искать в data-id или по другому, но если не нашли — ошибка
+    throw new Error('Cannot find curr_id for pair ' + pair);
+  }
+
+  // 2) Формируем даты st_date и end_date в формате MM/DD/YYYY
+  const endDate = new Date();
+  const startDate = new Date(endDate.getTime() - 365 * 24 * 3600 * 1000); // год назад
+
+  function formatDate(d) {
+    const mm = (d.getMonth() + 1).toString().padStart(2, '0');
+    const dd = d.getDate().toString().padStart(2, '0');
+    const yyyy = d.getFullYear();
+    return `${mm}/${dd}/${yyyy}`;
+  }
+
+  // 3) Делаем POST запрос на https://www.investing.com/instruments/HistoricalDataAjax
+  const postUrl = 'https://www.investing.com/instruments/HistoricalDataAjax';
+
+  const params = new URLSearchParams();
+  params.append('curr_id', curr_id);
+  params.append('st_date', formatDate(startDate));
+  params.append('end_date', formatDate(endDate));
+  params.append('interval', interval);
+  params.append('sort_col', 'date');
+  params.append('sort_ord', 'DESC');
+  params.append('action', 'historical_data');
+
+  const postHeaders = {
+    ...headers,
+    'Content-Type': 'application/x-www-form-urlencoded',
+    'X-Requested-With': 'XMLHttpRequest',
+    'Referer': url,
+  };
+
+  const response = await axios.post(postUrl, params.toString(), { headers: postHeaders });
+
+  const $$ = cheerio.load(response.data);
+
+  // Парсим таблицу
+  const klines = [];
+  $$('#curr_table tbody tr').each((i, el) => {
+    if (i >= count) return false;
+    const tds = $$(el).find('td');
+    if (tds.length < 6) return;
+    // Формат даты: 08/18/2023 14:30 или 08/18/2023
+    const dateStr = $$(tds[0]).text().trim();
+    const openStr = $$(tds[1]).text().trim().replace(/,/g, '');
+    const highStr = $$(tds[2]).text().trim().replace(/,/g, '');
+    const lowStr = $$(tds[3]).text().trim().replace(/,/g, '');
+    const closeStr = $$(tds[4]).text().trim().replace(/,/g, '');
+    const volumeStr = $$(tds[5]).text().trim().replace(/,/g, '').replace(/K/g, '000').replace(/M/g, '000000');
+
+    // Парсим дату
+    let openTime = Date.parse(dateStr);
+    if (isNaN(openTime)) {
+      // Если не парсится, пропускаем
+      return;
+    }
+    // Приблизительно определим closeTime по таймфрейму
+    const tfSec = timeframeToSeconds[timeframeValue] || 60;
+    const closeTime = openTime + tfSec * 1000 - 1;
+
+    const open = parseFloat(openStr);
+    const high = parseFloat(highStr);
+    const low = parseFloat(lowStr);
+    const close = parseFloat(closeStr);
+    const volume = parseFloat(volumeStr) || 0;
+
+    if ([open, high, low, close].some(isNaN)) return;
+
+    klines.push({
+      openTime,
+      open,
+      high,
+      low,
+      close,
+      closeTime,
+      volume,
+    });
+  });
+
+  if (klines.length === 0) {
+    throw new Error('No candle data parsed from Investing.com');
+  }
+
+  // Данные идут в обратном хронологическом порядке — отсортируем по openTime по возрастанию
+  klines.sort((a, b) => a.openTime - b.openTime);
+
+  return klines;
 }
 
 // --- Вспомогательные ---
@@ -454,7 +484,7 @@ bot.on('callback_query', async (ctx) => {
         Markup.button.callback(langData.texts.nextAnalysis, 'next_analysis'),
       ]));
     } catch (e) {
-      console.error('Ошибка получения данных с API:', e);
+      console.error('Ошибка получения данных с Investing.com:', e);
       await ctx.reply(langData.texts.errorGeneratingChart + '\n' + e.message);
     }
     return;
