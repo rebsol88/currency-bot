@@ -1,8 +1,12 @@
 import { Telegraf, Markup, session } from 'telegraf';
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
-import Chart from 'chart.js/auto/auto.js';
+import { Chart, registerables } from 'chart.js';
 import annotationPlugin from 'chartjs-plugin-annotation';
 import fetch from 'node-fetch';
+
+// --- Регистрируем компоненты и плагины Chart.js ---
+Chart.register(...registerables);
+Chart.register(annotationPlugin);
 
 // --- Настройки ---
 const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
@@ -15,10 +19,8 @@ const height = 600;
 const chartJSNodeCanvas = new ChartJSNodeCanvas({
   width,
   height,
-  chartCallback: (ChartJS) => {
-    ChartJS.register(annotationPlugin);
-  },
-  chartJs: Chart,
+  chartCallback: () => {}, // регистрация уже сделана выше
+  // chartJs: Chart, // не нужно передавать, chartjs-node-canvas сам использует глобальный Chart
 });
 
 const languages = {
@@ -232,7 +234,6 @@ async function sendPairSelection(ctx, lang) {
       e.description.includes('message is not modified')
     ) {
       // Игнорируем ошибку, т.к. сообщение и клавиатура не изменились
-      // Можно при желании логировать или просто молча пропускать
       return;
     }
     throw e;
