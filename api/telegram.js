@@ -20,7 +20,7 @@ const height = 600;
 const chartJSNodeCanvas = new ChartJSNodeCanvas({
   width,
   height,
-  chartCallback: () => {}, // регистрация уже сделана выше
+  chartCallback: () => {}, // регистрация компонентов уже сделана выше
 });
 
 // --- Данные и функции (сокращены для примера, подставьте свои реализации) ---
