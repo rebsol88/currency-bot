@@ -13,16 +13,16 @@ const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
 const bot = new Telegraf(BOT_TOKEN);
 bot.use(session());
 
-// Инициализация chartJSNodeCanvas с регистрацией плагина annotation
+// Инициализация chartJSNodeCanvas
 const width = 800;
 const height = 600;
 const chartJSNodeCanvas = new ChartJSNodeCanvas({
   width,
   height,
-  chartCallback: () => {}, // регистрация компонентов уже сделана выше
+  // chartCallback не нужен, т.к. регистрация уже сделана выше
 });
 
-// --- Данные и функции (сокращены для примера, подставьте свои реализации) ---
+// --- Данные и функции ---
 const languages = {
   ru: {
     name: 'Русский',
