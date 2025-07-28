@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "chart.js": "^3.9.1",
-    "chartjs-node-canvas": "^4.0.5",
+    "chartjs-node-canvas": "^4.1.6",
     "chartjs-plugin-annotation": "^1.4.0",
     "node-fetch": "^3.3.1",
     "telegraf": "^4.12.0"
