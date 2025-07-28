@@ -6,7 +6,7 @@ import axios from 'axios';
 const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
 
 // Ваши данные для логина Pocket Option
-const PO_EMAIL = 'shustry_boy@mail.ru'; // замените на свои данные
+const PO_EMAIL = 'shustry_boy@mail.ru';
 const PO_PASSWORD = 'do23_d3DnN1cs_';
 
 // WS сервер Pocket Option (пример, может меняться)
@@ -89,34 +89,83 @@ function chunkArray(arr, size) {
   return result;
 }
 
-// --- Авторизация и получение cookie ---
+// --- Авторизация и получение cookie, userSecret, uid с зеркала ---
+import cheerio from 'cheerio';
+
 async function loginPocketOption() {
   try {
-    const response = await axios.post('https://auth.pocketoption.com/api/v1/login', {
-      email: PO_EMAIL,
-      password: PO_PASSWORD,
-    }, {
+    // Получаем страницу логина для сессии и возможного CSRF
+    const loginPageResp = await axios.get('https://cntly.co/ru/login/', {
       headers: {
-        'Content-Type': 'application/json',
-        Origin: 'https://pocketoption.com',
-        Referer: 'https://pocketoption.com/',
+        'User-Agent': 'Mozilla/5.0',
       },
       withCredentials: true,
     });
+    const cookies = loginPageResp.headers['set-cookie'] || [];
+    const cookieString = cookies.map(c => c.split(';')[0]).join('; ');
 
-    // В cookie может быть токен сессии
-    const setCookie = response.headers['set-cookie'];
-    if (!setCookie) throw new Error('Cookie not received');
+    // Если нужен CSRF токен — парсим его (пример)
+    const $ = cheerio.load(loginPageResp.data);
+    const csrfToken = $('input[name=csrf_token]').attr('value') || '';
 
-    // Собираем cookie в строку
-    const cookieString = setCookie.map(c => c.split(';')[0]).join('; ');
+    // Логинимся POST запросом
+    const params = new URLSearchParams();
+    params.append('email', PO_EMAIL);
+    params.append('password', PO_PASSWORD);
+    if (csrfToken) params.append('csrf_token', csrfToken);
+    params.append('submit', 'Войти');
 
-    // В ответе может быть userSecret или uid
-    const { userSecret, uid } = response.data;
+    const loginResp = await axios.post('https://cntly.co/ru/login/', params.toString(), {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Mozilla/5.0',
+        'Cookie': cookieString,
+        'Referer': 'https://cntly.co/ru/login/',
+      },
+      maxRedirects: 0,
+      validateStatus: status => status >= 200 && status < 400,
+      withCredentials: true,
+    });
 
-    if (!userSecret || !uid) throw new Error('userSecret or uid not found in login response');
+    // Обработка редиректа после успешного логина
+    let finalHtml = '';
+    if (loginResp.status === 302 && loginResp.headers.location) {
+      const redirectUrl = loginResp.headers.location.startsWith('http') ? loginResp.headers.location : 'https://cntly.co' + loginResp.headers.location;
+      const finalResp = await axios.get(redirectUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0',
+          'Cookie': cookieString,
+          'Referer': 'https://cntly.co/ru/login/',
+        },
+        withCredentials: true,
+      });
+      finalHtml = finalResp.data;
+    } else {
+      finalHtml = loginResp.data;
+    }
 
-    return { cookieString, userSecret, uid };
+    // Парсим userId и userSecret из скриптов страницы
+    const $$ = cheerio.load(finalHtml);
+    let userId = null;
+    let userSecret = null;
+
+    $$('script').each((i, el) => {
+      const scriptText = $$(el).html() || '';
+      if (scriptText.includes('userSecret')) {
+        const userIdMatch = scriptText.match(/"userId"\s*:\s*"?(\d+)"?/);
+        const userSecretMatch = scriptText.match(/"userSecret"\s*:\s*"([a-f0-9]+)"/i);
+        if (userIdMatch && userSecretMatch) {
+          userId = userIdMatch[1];
+          userSecret = userSecretMatch[1];
+        }
+      }
+    });
+
+    if (!userId || !userSecret) {
+      throw new Error('Не удалось получить userId или userSecret из страницы после логина');
+    }
+
+    return { cookieString, userSecret, userId };
   } catch (e) {
     console.error('Login error:', e.message);
     throw e;
@@ -125,10 +174,10 @@ async function loginPocketOption() {
 
 // --- WS клиент Pocket Option ---
 class PocketOptionWSClient {
-  constructor(cookie, userSecret, uid, server) {
+  constructor(cookie, userSecret, userId, server) {
     this.cookie = cookie;
     this.userSecret = userSecret;
-    this.uid = uid;
+    this.userId = userId;
     this.server = server;
     this.ws = null;
     this.subscriptions = new Set();
@@ -141,7 +190,6 @@ class PocketOptionWSClient {
       headers: {
         Origin: 'https://pocketoption.com',
         Cookie: this.cookie,
-        // Иногда может потребоваться Authorization или другие заголовки
       },
     });
 
@@ -152,7 +200,7 @@ class PocketOptionWSClient {
       // Авторизация через WS (пример)
       const authMsg = {
         type: 'auth',
-        uid: this.uid,
+        uid: this.userId,
         userSecret: this.userSecret,
       };
       this.ws.send(JSON.stringify(authMsg));
@@ -269,14 +317,14 @@ bot.action(/lang_(.+)/, async (ctx) => {
 
   // Логинимся и создаём WS клиент
   try {
-    const { cookieString, userSecret, uid } = await loginPocketOption();
+    const { cookieString, userSecret, userId } = await loginPocketOption();
 
     if (poWSClient) {
       poWSClient.close();
       poWSClient = null;
     }
 
-    poWSClient = new PocketOptionWSClient(cookieString, userSecret, uid, PO_WS_SERVER);
+    poWSClient = new PocketOptionWSClient(cookieString, userSecret, userId, PO_WS_SERVER);
     poWSClient.connect();
 
   } catch (e) {
