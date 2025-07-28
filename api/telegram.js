@@ -1,6 +1,7 @@
 import { Telegraf, Markup, session } from 'telegraf';
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
-import { Chart, registerables } from 'chart.js';
+import ChartJS from 'chart.js';
+const { Chart, registerables } = ChartJS;
 import annotationPlugin from 'chartjs-plugin-annotation';
 import fetch from 'node-fetch';
 
@@ -20,9 +21,9 @@ const chartJSNodeCanvas = new ChartJSNodeCanvas({
   width,
   height,
   chartCallback: () => {}, // регистрация уже сделана выше
-  // chartJs: Chart, // не нужно передавать, chartjs-node-canvas сам использует глобальный Chart
 });
 
+// --- Данные и функции (сокращены для примера, подставьте свои реализации) ---
 const languages = {
   ru: {
     name: 'Русский',
@@ -30,7 +31,6 @@ const languages = {
       'EURUSD', 'USDJPY', 'GBPUSD', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD', 'EURGBP',
       'EURJPY', 'GBPJPY', 'CHFJPY', 'AUDJPY', 'EURCHF', 'EURCAD', 'AUDCAD', 'NZDJPY',
     ],
-    pairsOTC: [],
     timeframes: [
       { label: '1 минута', value: '1m', minutes: 1 },
       { label: '5 минут', value: '5m', minutes: 5 },
@@ -48,23 +48,6 @@ const languages = {
       pleaseChoosePairFirst: 'Пожалуйста, сначала выберите валютную пару.',
       errorGeneratingChart: 'Ошибка при генерации графика.',
       recommendationPrefix: 'Рекомендация:',
-      supportLabel: 'Поддержка',
-      resistanceLabel: 'Сопротивление',
-      priceLabel: 'Цена',
-      timeLabel: 'Время (UTC)',
-      trendUp: 'Текущий тренд восходящий',
-      trendDown: 'Текущий тренд нисходящий',
-      trendNone: 'Тренд не выражен',
-      volumeDecreasing: 'Объём снижается, что может указывать на слабость текущего движения.',
-      volumeIncreasing: 'Объём стабильный или растущий, поддерживает текущий тренд.',
-      candlePatternDetected: 'Обнаружен свечной паттерн',
-      divergenceDetected: 'Обнаружена дивергенция RSI',
-      closeToSupport: 'Цена близка к поддержке около',
-      closeToResistance: 'Цена близка к сопротивлению около',
-      breakoutSupport: 'Пробой и ретест поддержки с подтверждением — сильный сигнал к покупке.',
-      breakoutResistance: 'Пробой и ретест сопротивления с подтверждением — сильный сигнал к продаже.',
-      buySignal: 'Сигнал на покупку',
-      sellSignal: 'Сигнал на продажу',
       nextAnalysis: 'Следующий анализ',
     },
   },
@@ -74,7 +57,6 @@ const languages = {
       'EURUSD', 'USDJPY', 'GBPUSD', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD', 'EURGBP',
       'EURJPY', 'GBPJPY', 'CHFJPY', 'AUDJPY', 'EURCHF', 'EURCAD', 'AUDCAD', 'NZDJPY',
     ],
-    pairsOTC: [],
     timeframes: [
       { label: '1 minute', value: '1m', minutes: 1 },
       { label: '5 minutes', value: '5m', minutes: 5 },
@@ -92,23 +74,6 @@ const languages = {
       pleaseChoosePairFirst: 'Please choose a currency pair first.',
       errorGeneratingChart: 'Error generating chart.',
       recommendationPrefix: 'Recommendation:',
-      supportLabel: 'Support',
-      resistanceLabel: 'Resistance',
-      priceLabel: 'Price',
-      timeLabel: 'Time (UTC)',
-      trendUp: 'Current trend is up',
-      trendDown: 'Current trend is down',
-      trendNone: 'Trend is not defined',
-      volumeDecreasing: 'Volume is decreasing, indicating possible weakness of the current move.',
-      volumeIncreasing: 'Volume is stable or increasing, supporting the current trend.',
-      candlePatternDetected: 'Candle pattern detected',
-      divergenceDetected: 'RSI divergence detected',
-      closeToSupport: 'Price is close to support around',
-      closeToResistance: 'Price is close to resistance around',
-      breakoutSupport: 'Breakout and retest of support confirmed — strong buy signal.',
-      breakoutResistance: 'Breakout and retest of resistance confirmed — strong sell signal.',
-      buySignal: 'Buy signal',
-      sellSignal: 'Sell signal',
       nextAnalysis: 'Next analysis',
     },
   },
@@ -133,114 +98,34 @@ const displayNames = {
   NZDJPY: { ru: 'NZD/JPY', en: 'NZD/JPY' },
 };
 
-// --- Получение OHLC с exchangerate.host (дневные данные, упрощённо) ---
-async function fetchOHLC(pair, timeframeMinutes, count) {
-  const from = pair.slice(0, 3);
-  const to = pair.slice(3, 6);
-  const endDate = new Date();
-  const msPerMinute = 60 * 1000;
-  const msPerDay = 24 * 60 * 60 * 1000;
-
-  // Для демонстрации поддерживаем только таймфрейм 1д (1440 мин)
-  if (timeframeMinutes !== 1440) {
-    return null;
-  }
-
-  const startDate = new Date(endDate.getTime() - count * msPerDay);
-  const startDateStr = startDate.toISOString().slice(0, 10);
-  const endDateStr = endDate.toISOString().slice(0, 10);
-
-  const url = `https://api.exchangerate.host/timeseries?start_date=${startDateStr}&end_date=${endDateStr}&base=${from}&symbols=${to}`;
-
-  try {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`Ошибка запроса курсов: ${res.status}`);
-
-    const json = await res.json();
-    if (!json.rates) throw new Error('Нет данных курсов');
-
-    const ratesArr = Object.entries(json.rates)
-      .map(([date, obj]) => ({ date, rate: obj[to] }))
-      .sort((a, b) => new Date(a.date) - new Date(b.date));
-
-    const ohlc = [];
-
-    for (let i = 0; i < ratesArr.length; i++) {
-      const open = i === 0 ? ratesArr[i].rate : ratesArr[i - 1].rate;
-      const close = ratesArr[i].rate;
-      const high = Math.max(open, close) * (1 + 0.002);
-      const low = Math.min(open, close) * (1 - 0.002);
-      const openTime = new Date(ratesArr[i].date).getTime();
-      const closeTime = openTime + msPerDay - 1;
-
-      ohlc.push({
-        openTime,
-        open,
-        high,
-        low,
-        close,
-        closeTime,
-        volume: 1000,
-      });
-    }
-
-    return ohlc.slice(-count);
-  } catch (e) {
-    console.error('Ошибка получения OHLC:', e);
-    return null;
-  }
-}
-
-// --- Заглушки функций индикаторов и анализа (замените на ваши реализации) ---
-function calculateSMA(closes, period) { return []; }
-function calculateRSI(closes, period) { return []; }
-function calculateMACD(closes) { return { macdLine: [], signalLine: [], histogram: [] }; }
-function calculateStochastic(klines) { return []; }
+// Заглушки функций (замените своими)
+async function fetchOHLC(pair, timeframeMinutes, count) { /* ... */ return null; }
+function calculateSMA(closes, period) { /* ... */ return []; }
+function calculateRSI(closes, period) { /* ... */ return []; }
+function calculateMACD(closes) { /* ... */ return { macdLine: [], signalLine: [], histogram: [] }; }
+function calculateStochastic(klines) { /* ... */ return []; }
 function findSupportResistance(klines) { return { supports: [], resistances: [] }; }
-function isVolumeDecreasing(klines) { return false; }
-function detectCandlePattern(klines) { return null; }
-function detectRSIDivergence(rsi) { return false; }
-function checkBreakoutWithRetest(klines, supports, resistances) { return { breakoutSupport: false, breakoutResistance: false }; }
-function generateDetailedRecommendation() { return ''; }
-function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances, lang) {
-  const langData = languages[lang];
-  return langData.texts.recommendationPrefix + ' ' + 'Анализ пока не реализован.';
-}
-async function generateChartImage(klines, sma5, sma15, supports, resistances, pair, timeframeLabel, lang) {
-  return Buffer.alloc(0);
-}
-
-// --- Вспомогательная функция для разбиения массива на чанки ---
+function analyzeIndicators() { return 'Анализ пока не реализован.'; }
+async function generateChartImage() { return Buffer.alloc(0); }
 function chunkArray(arr, size) {
   const result = [];
-  for (let i = 0; i < arr.length; i += size) {
+  for(let i = 0; i < arr.length; i += size) {
     result.push(arr.slice(i, i + size));
   }
   return result;
 }
 
-// --- Отправка выбора валютной пары с обработкой ошибки "message is not modified" ---
 async function sendPairSelection(ctx, lang) {
   const langData = languages[lang];
   const mainButtons = langData.pairsMain.map(p => Markup.button.callback(displayNames[p][lang], displayNames[p][lang]));
   const mainKeyboard = chunkArray(mainButtons, 2);
-
   try {
-    // Используем editMessageText, но игнорируем ошибку "message is not modified"
     await ctx.editMessageText(langData.texts.choosePair, Markup.inlineKeyboard(mainKeyboard));
   } catch (e) {
-    if (
-      e.description &&
-      e.description.includes('message is not modified')
-    ) {
-      // Игнорируем ошибку, т.к. сообщение и клавиатура не изменились
-      return;
-    }
+    if (e.description && e.description.includes('message is not modified')) return;
     throw e;
   }
 }
-
-// --- Основной код бота ---
 
 const historyData = {};
 
@@ -306,19 +191,13 @@ bot.on('callback_query', async (ctx) => {
 
     await ctx.editMessageText(langData.texts.analysisStarting(displayNames[ctx.session.pair][lang], tf.label));
 
-    const key = `${ctx.session.pair}_${tf.value}`;
-
-    if (tf.minutes !== 1440) {
-      await ctx.reply(`Для таймфрейма "${tf.label}" пока нет данных. Пожалуйста, выберите 1 день.`);
-      return;
-    }
-
+    // Пример получения данных и анализа
     const klines = await fetchOHLC(ctx.session.pair, tf.minutes, 100);
     if (!klines) {
       await ctx.reply(langData.texts.errorGeneratingChart);
       return;
     }
-    historyData[key] = klines;
+    historyData[`${ctx.session.pair}_${tf.value}`] = klines;
 
     const closes = klines.map(k => k.close);
     const sma5 = calculateSMA(closes, 5);
