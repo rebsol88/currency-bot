@@ -1,6 +1,6 @@
 import { Telegraf, Markup, session } from 'telegraf';
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
-import Chart from 'chart.js/auto';
+import Chart from 'chart.js/auto/auto.js';
 import annotationPlugin from 'chartjs-plugin-annotation';
 import axios from 'axios';
 
