@@ -22,7 +22,7 @@ const chartJSNodeCanvas = new ChartJSNodeCanvas({
   },
 });
 
-// --- Языковые данные и пары (без изменений) ---
+// --- Языковые данные и пары (без OTC и без 1day) ---
 const languages = {
   ru: {
     name: 'Русский',
@@ -30,19 +30,15 @@ const languages = {
       'EURUSD', 'USDJPY', 'GBPUSD', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD', 'EURGBP',
       'EURJPY', 'GBPJPY', 'CHFJPY', 'AUDJPY', 'EURCHF', 'EURCAD', 'AUDCAD', 'NZDJPY',
     ],
-    pairsOTC: [
-      'OTC_EURAUD', 'OTC_EURCAD', 'OTC_EURCHF', 'OTC_EURJPY',
-      'OTC_EURNZD', 'OTC_EURUSD', 'OTC_GBPCHF', 'OTC_GBPJPY',
-      'OTC_GBPNZD', 'OTC_GBPUSD', 'OTC_USDCAD', 'OTC_USDCHF',
-      'OTC_USDJPY', 'OTC_USDNZD', 'OTC_AUDCAD', 'OTC_AUDCHF',
-    ],
+    // OTC пары убраны
+    pairsOTC: [],
     timeframes: [
       { label: '1 минута', value: '1min', minutes: 1 },
       { label: '5 минут', value: '5min', minutes: 5 },
       { label: '15 минут', value: '15min', minutes: 15 },
       { label: '1 час', value: '60min', minutes: 60 },
-      { label: '4 часа', value: '240min', minutes: 240 },
-      { label: '1 день', value: '1day', minutes: 1440 },
+      { label: '4 часа', value: '240min', minutes: 240 }, // 4 часа оставил, но не поддерживается Alpha Vantage FX_INTRADAY
+      // { label: '1 день', value: '1day', minutes: 1440 }, // убрал
     ],
     texts: {
       chooseLanguage: 'Выберите язык / Choose language',
@@ -79,19 +75,14 @@ const languages = {
       'EURUSD', 'USDJPY', 'GBPUSD', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD', 'EURGBP',
       'EURJPY', 'GBPJPY', 'CHFJPY', 'AUDJPY', 'EURCHF', 'EURCAD', 'AUDCAD', 'NZDJPY',
     ],
-    pairsOTC: [
-      'OTC_EURAUD', 'OTC_EURCAD', 'OTC_EURCHF', 'OTC_EURJPY',
-      'OTC_EURNZD', 'OTC_EURUSD', 'OTC_GBPCHF', 'OTC_GBPJPY',
-      'OTC_GBPNZD', 'OTC_GBPUSD', 'OTC_USDCAD', 'OTC_USDCHF',
-      'OTC_USDJPY', 'OTC_USDNZD', 'OTC_AUDCAD', 'OTC_AUDCHF',
-    ],
+    pairsOTC: [],
     timeframes: [
       { label: '1 minute', value: '1min', minutes: 1 },
       { label: '5 minutes', value: '5min', minutes: 5 },
       { label: '15 minutes', value: '15min', minutes: 15 },
       { label: '1 hour', value: '60min', minutes: 60 },
       { label: '4 hours', value: '240min', minutes: 240 },
-      { label: '1 day', value: '1day', minutes: 1440 },
+      // { label: '1 day', value: '1day', minutes: 1440 }, // убрал
     ],
     texts: {
       chooseLanguage: 'Choose language / Выберите язык',
@@ -141,22 +132,7 @@ const displayNames = {
   EURCAD: { ru: 'EUR/CAD', en: 'EUR/CAD' },
   AUDCAD: { ru: 'AUD/CAD', en: 'AUD/CAD' },
   NZDJPY: { ru: 'NZD/JPY', en: 'NZD/JPY' },
-  OTC_EURAUD: { ru: 'OTC EUR/AUD', en: 'OTC EUR/AUD' },
-  OTC_EURCAD: { ru: 'OTC EUR/CAD', en: 'OTC EUR/CAD' },
-  OTC_EURCHF: { ru: 'OTC EUR/CHF', en: 'OTC EUR/CHF' },
-  OTC_EURJPY: { ru: 'OTC EUR/JPY', en: 'OTC EUR/JPY' },
-  OTC_EURNZD: { ru: 'OTC EUR/NZD', en: 'OTC EUR/NZD' },
-  OTC_EURUSD: { ru: 'OTC EUR/USD', en: 'OTC EUR/USD' },
-  OTC_GBPCHF: { ru: 'OTC GBP/CHF', en: 'OTC GBP/CHF' },
-  OTC_GBPJPY: { ru: 'OTC GBP/JPY', en: 'OTC GBP/JPY' },
-  OTC_GBPNZD: { ru: 'OTC GBP/NZD', en: 'OTC GBP/NZD' },
-  OTC_GBPUSD: { ru: 'OTC GBP/USD', en: 'OTC GBP/USD' },
-  OTC_USDCAD: { ru: 'OTC USD/CAD', en: 'OTC USD/CAD' },
-  OTC_USDCHF: { ru: 'OTC USD/CHF', en: 'OTC USD/CHF' },
-  OTC_USDJPY: { ru: 'OTC USD/JPY', en: 'OTC USD/JPY' },
-  OTC_USDNZD: { ru: 'OTC USD/NZD', en: 'OTC USD/NZD' },
-  OTC_AUDCAD: { ru: 'OTC AUD/CAD', en: 'OTC AUD/CAD' },
-  OTC_AUDCHF: { ru: 'OTC AUD/CHF', en: 'OTC AUD/CHF' },
+  // OTC пары удалены
 };
 
 // --- Кэш свечей ---
@@ -173,52 +149,30 @@ function chunkArray(arr, size) {
 }
 
 // Преобразование пары из формата PO в Alpha Vantage
-// Alpha Vantage требует from_symbol и to_symbol отдельно, например EUR и USD
 function parsePairAlphaVantage(pair) {
-  // Уберём OTC_ если есть
   if (pair.startsWith('OTC_')) pair = pair.slice(4);
-  // Разобьём на две части по 3 символа
   const from_symbol = pair.slice(0, 3);
   const to_symbol = pair.slice(3);
   return { from_symbol, to_symbol };
 }
 
-// Преобразование таймфрейма из вашего списка в Alpha Vantage
-// Alpha Vantage поддерживает: 1min, 5min, 15min, 30min, 60min
-// Для 4h и 1d — Alpha Vantage не поддерживает FX_INTRADAY, можно использовать FX_DAILY для 1d
+// Преобразование таймфрейма в Alpha Vantage
 function mapTimeframeToAlphaVantage(tfValue) {
   if (tfValue === '1min') return '1min';
   if (tfValue === '5min') return '5min';
   if (tfValue === '15min') return '15min';
   if (tfValue === '60min') return '60min';
-  if (tfValue === '240min') return null; // нет поддержки 4h в FX_INTRADAY
-  if (tfValue === '1day') return null; // нужно FX_DAILY
+  if (tfValue === '240min') return null; // 4 часа не поддерживается FX_INTRADAY Alpha Vantage
+  // 1day удалён
   return null;
 }
 
-// --- Функция получения свечей с Alpha Vantage ---
+// --- Получение свечей с Alpha Vantage ---
 async function fetchCandlesAlphaVantage(pair, timeframe, outputsize = 'compact') {
   const { from_symbol, to_symbol } = parsePairAlphaVantage(pair);
   const interval = mapTimeframeToAlphaVantage(timeframe);
 
   if (!interval) {
-    // Для 1day (день) используем FX_DAILY
-    if (timeframe === '1day') {
-      const url = `https://www.alphavantage.co/query?function=FX_DAILY&from_symbol=${from_symbol}&to_symbol=${to_symbol}&apikey=${ALPHAVANTAGE_API_KEY}&outputsize=${outputsize}`;
-      const response = await axios.get(url);
-      const data = response.data;
-      if (!data['Time Series FX (Daily)']) throw new Error('No daily data');
-      return Object.entries(data['Time Series FX (Daily)'])
-        .map(([time, candle]) => ({
-          openTime: new Date(time).getTime(),
-          open: parseFloat(candle['1. open']),
-          high: parseFloat(candle['2. high']),
-          low: parseFloat(candle['3. low']),
-          close: parseFloat(candle['4. close']),
-          volume: 0,
-        }))
-        .sort((a, b) => a.openTime - b.openTime);
-    }
     throw new Error('Unsupported timeframe for Alpha Vantage FX_INTRADAY');
   }
 
@@ -226,7 +180,11 @@ async function fetchCandlesAlphaVantage(pair, timeframe, outputsize = 'compact')
   const response = await axios.get(url);
   const data = response.data;
   const key = `Time Series FX (${interval})`;
-  if (!data[key]) throw new Error('No intraday data');
+  if (!data[key]) {
+    if (data['Note']) throw new Error('API limit reached: ' + data['Note']);
+    if (data['Error Message']) throw new Error('API error: ' + data['Error Message']);
+    throw new Error('No intraday data');
+  }
 
   return Object.entries(data[key])
     .map(([time, candle]) => ({
@@ -240,10 +198,7 @@ async function fetchCandlesAlphaVantage(pair, timeframe, outputsize = 'compact')
     .sort((a, b) => a.openTime - b.openTime);
 }
 
-// --- Индикаторы и анализ ---
-// Вставьте сюда ваши функции calculateSMA, calculateRSI, calculateEMA, calculateMACD, calculateStochastic, findSupportResistance, isVolumeDecreasing, detectCandlePattern, detectRSIDivergence, checkBreakoutWithRetest, generateDetailedRecommendation, analyzeIndicators, generateChartImage
-// Для примера вставляю заглушки — замените на ваши реализации:
-
+// --- Заглушки для индикаторов и анализа ---
 function calculateSMA(data, period) {
   const sma = [];
   for (let i = 0; i < data.length; i++) {
@@ -256,61 +211,24 @@ function calculateSMA(data, period) {
   }
   return sma;
 }
-function calculateRSI(data, period) {
-  // Реализуйте ваш RSI
-  return new Array(data.length).fill(null);
-}
-function calculateEMA(data, period) {
-  // Реализуйте ваш EMA
-  return new Array(data.length).fill(null);
-}
-function calculateMACD(data) {
-  // Реализуйте ваш MACD
-  return { macdLine: [], signalLine: [], histogram: [] };
-}
-function calculateStochastic(data) {
-  // Реализуйте ваш Stochastic
-  return { k: [], d: [] };
-}
-function findSupportResistance(data) {
-  // Реализуйте поиск уровней поддержки и сопротивления
-  return { supports: [], resistances: [] };
-}
-function isVolumeDecreasing(data) {
-  // Реализуйте проверку объёма
-  return false;
-}
-function detectCandlePattern(data) {
-  // Реализуйте обнаружение паттернов
-  return false;
-}
-function detectRSIDivergence(data) {
-  // Реализуйте обнаружение дивергенций RSI
-  return false;
-}
-function checkBreakoutWithRetest(data) {
-  // Реализуйте проверку пробоев с ретестом
-  return null;
-}
-function generateDetailedRecommendation() {
-  // Реализуйте генерацию рекомендаций
-  return '';
-}
-function analyzeIndicators() {
-  // Реализуйте анализ индикаторов
-  return 'Анализ пока не реализован.';
-}
-async function generateChartImage() {
-  // Реализуйте генерацию графика с помощью chartJSNodeCanvas
-  // Для примера возвращаем пустой буфер
-  return Buffer.from([]);
-}
+function calculateRSI(data, period) { return new Array(data.length).fill(null); }
+function calculateEMA(data, period) { return new Array(data.length).fill(null); }
+function calculateMACD(data) { return { macdLine: [], signalLine: [], histogram: [] }; }
+function calculateStochastic(data) { return { k: [], d: [] }; }
+function findSupportResistance(data) { return { supports: [], resistances: [] }; }
+function isVolumeDecreasing(data) { return false; }
+function detectCandlePattern(data) { return false; }
+function detectRSIDivergence(data) { return false; }
+function checkBreakoutWithRetest(data) { return null; }
+function generateDetailedRecommendation() { return ''; }
+function analyzeIndicators() { return 'Анализ пока не реализован.'; }
+async function generateChartImage() { return Buffer.from([]); }
 
-// --- Функция для вывода выбора валютных пар ---
+// --- Отправка выбора пары ---
 async function sendPairSelection(ctx, lang) {
   const langData = languages[lang];
   const mainButtons = langData.pairsMain.map(p => Markup.button.callback(displayNames[p][lang], displayNames[p][lang]));
-  const otcButtons = langData.pairsOTC.map(p => Markup.button.callback(displayNames[p][lang], displayNames[p][lang]));
+  const otcButtons = []; // OTC убраны
 
   const mainKeyboard = chunkArray(mainButtons, 2);
   const otcKeyboard = chunkArray(otcButtons, 2);
@@ -398,7 +316,6 @@ bot.on('callback_query', async (ctx) => {
     await ctx.editMessageText(langData.texts.analysisStarting(displayNames[ctx.session.pair][lang], tf.label));
 
     try {
-      // Получаем свечи с Alpha Vantage
       const klines = await fetchCandlesAlphaVantage(ctx.session.pair, tf.value, 'compact');
 
       if (!klines || klines.length < 20) {
@@ -406,7 +323,6 @@ bot.on('callback_query', async (ctx) => {
         return;
       }
 
-      // Кэшируем
       candlesCache.set(`${ctx.session.pair}_${tf.value}`, klines);
 
       const closes = klines.map(k => k.close);
