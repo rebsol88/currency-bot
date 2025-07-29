@@ -4,7 +4,7 @@ class POClient {
   constructor(token) {
     this.token = token;
     this.ws = null;
-    this.subscribedPairs = new Map();
+    this.subscribedPairs = new Map(); // key: pair+timeframe, value: callback
   }
 
   connect() {
@@ -37,11 +37,33 @@ class POClient {
           }
         }
       } catch (e) {
-        // ignore parse errors
+        //ignore
       }
     });
 
     this.ws.on('close', () => {
       console.log('WS closed, reconnecting in 5s');
       setTimeout(() => this.connect(), 5000);
-   
+    });
+
+    this.ws.on('error', (e) => {
+      console.error('WS error', e.message);
+      this.ws.close();
+    });
+  }
+
+  subscribeCandles(symbol, timeframe, callback) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      console.error('WS not connected');
+      return;
+    }
+    const key = symbol + timeframe;
+    this.subscribedPairs.set(key, callback);
+    this.ws.send(JSON.stringify({
+      name: 'candles.subscribe',
+      msg: { symbol, timeframe }
+    }));
+  }
+}
+
+module.exports = POClient;
