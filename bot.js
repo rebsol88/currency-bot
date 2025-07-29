@@ -3,7 +3,7 @@ import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
 import Chart from 'chart.js/auto/auto.js';
 import annotationPlugin from 'chartjs-plugin-annotation';
 import axios from 'axios';
-import cheerio from 'cheerio';
+import * as cheerio from 'cheerio';  // <-- исправлено здесь
 
 // --- Настройки ---
 const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
@@ -110,9 +110,7 @@ async function fetchSignals(pair, tf) {
 
 // --- Функции для генерации графиков и анализа (оставляем из вашего кода) ---
 
-// ... (копируем из вашего кода все функции генерации OHLC, индикаторов, анализа и генерации графика) ...
-
-// Для краткости, здесь вставим ваши функции generateFakeOHLCFromTime, calculateSMA, calculateRSI, calculateEMA, calculateMACD, calculateStochastic, findSupportResistance, analyzeIndicators, generateChartImage и т.д.
+// ... (копируйте сюда ваши функции generateFakeOHLCFromTime, calculateSMA, calculateRSI, calculateEMA, calculateMACD, calculateStochastic, findSupportResistance, analyzeIndicators, generateChartImage) ...
 
 // --- Вспомогательная функция для разбивки массива на чанки ---
 function chunkArray(arr, size) {
