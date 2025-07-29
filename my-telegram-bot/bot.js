@@ -1,7 +1,7 @@
 import { Telegraf, Markup, session } from 'telegraf';
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
-import Chart from 'chart.js/auto/auto.js';
-import annotationPlugin from 'chartjs-plugin-annotation';
+import Chart from 'chart.js/auto'; // Исправлен импорт
+import { BoxAndWiskers } from 'chartjs-plugin-annotation'; // Исправлен импорт плагина
 import axios from 'axios';
 
 // --- Настройки ---
@@ -20,7 +20,7 @@ const chartJSNodeCanvas = new ChartJSNodeCanvas({
   width,
   height,
   chartCallback: (ChartJS) => {
-    ChartJS.register(annotationPlugin);
+    ChartJS.register(BoxAndWiskers); // Регистрация плагина
   },
 });
 
