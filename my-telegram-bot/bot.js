@@ -2,11 +2,11 @@ import { Telegraf, Markup, session } from 'telegraf';
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
 import Chart from 'chart.js/auto/auto.js';
 import annotationPlugin from 'chartjs-plugin-annotation';
-import WebSocket from 'ws';
+import axios from 'axios';
 
 // --- Настройки ---
 const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
-const PO_TOKEN = '4856b3059a46d3720bad2f5b4e2ea3c4'; // Ваш токен Pocket Option API
+const ALPHAVANTAGE_API_KEY = '6XLTMJEEILYL1VE3'; // Ваш ключ Alpha Vantage
 
 const bot = new Telegraf(BOT_TOKEN);
 bot.use(session());
@@ -22,7 +22,7 @@ const chartJSNodeCanvas = new ChartJSNodeCanvas({
   },
 });
 
-// --- Ваши языковые данные и пары (не изменял) ---
+// --- Языковые данные и пары (без изменений) ---
 const languages = {
   ru: {
     name: 'Русский',
@@ -37,12 +37,12 @@ const languages = {
       'OTC_USDJPY', 'OTC_USDNZD', 'OTC_AUDCAD', 'OTC_AUDCHF',
     ],
     timeframes: [
-      { label: '1 минута', value: '1m', minutes: 1 },
-      { label: '5 минут', value: '5m', minutes: 5 },
-      { label: '15 минут', value: '15m', minutes: 15 },
-      { label: '1 час', value: '1h', minutes: 60 },
-      { label: '4 часа', value: '4h', minutes: 240 },
-      { label: '1 день', value: '1d', minutes: 1440 },
+      { label: '1 минута', value: '1min', minutes: 1 },
+      { label: '5 минут', value: '5min', minutes: 5 },
+      { label: '15 минут', value: '15min', minutes: 15 },
+      { label: '1 час', value: '60min', minutes: 60 },
+      { label: '4 часа', value: '240min', minutes: 240 },
+      { label: '1 день', value: '1day', minutes: 1440 },
     ],
     texts: {
       chooseLanguage: 'Выберите язык / Choose language',
@@ -86,12 +86,12 @@ const languages = {
       'OTC_USDJPY', 'OTC_USDNZD', 'OTC_AUDCAD', 'OTC_AUDCHF',
     ],
     timeframes: [
-      { label: '1 minute', value: '1m', minutes: 1 },
-      { label: '5 minutes', value: '5m', minutes: 5 },
-      { label: '15 minutes', value: '15m', minutes: 15 },
-      { label: '1 hour', value: '1h', minutes: 60 },
-      { label: '4 hours', value: '4h', minutes: 240 },
-      { label: '1 day', value: '1d', minutes: 1440 },
+      { label: '1 minute', value: '1min', minutes: 1 },
+      { label: '5 minutes', value: '5min', minutes: 5 },
+      { label: '15 minutes', value: '15min', minutes: 15 },
+      { label: '1 hour', value: '60min', minutes: 60 },
+      { label: '4 hours', value: '240min', minutes: 240 },
+      { label: '1 day', value: '1day', minutes: 1440 },
     ],
     texts: {
       chooseLanguage: 'Choose language / Выберите язык',
@@ -159,151 +159,151 @@ const displayNames = {
   OTC_AUDCHF: { ru: 'OTC AUD/CHF', en: 'OTC AUD/CHF' },
 };
 
-// --- Pocket Option WebSocket клиент ---
-class POClient {
-  constructor(token) {
-    this.token = token;
-    this.ws = null;
-    this.connected = false;
-    this.subscribed = new Set();
-    this.callbacks = new Map(); // key = pair_value, value = callback
-  }
-
-  connect() {
-    const servers = [
-      'wss://api-msk.po.market',
-      'wss://api-spb.po.market',
-      'wss://api-eu.po.market',
-      'wss://api-us-south.po.market',
-      'wss://api-us-north.po.market',
-    ];
-    const server = servers[Math.floor(Math.random() * servers.length)];
-    this.ws = new WebSocket(server);
-
-    this.ws.on('open', () => {
-      this.ws.send(
-        JSON.stringify({
-          name: 'authenticate',
-          msg: { token: this.token },
-        }),
-      );
-    });
-
-    this.ws.on('message', (data) => {
-      try {
-        const msg = JSON.parse(data);
-        if (msg.name === 'authenticate' && msg.msg && msg.msg.success) {
-          this.connected = true;
-          // Подписываемся на все пары и таймфреймы, которые добавлены в subscribed
-          for (const key of this.subscribed) {
-            const [pair, tf] = key.split('_');
-            this._sendSubscribe(pair, tf);
-          }
-          return;
-        }
-        if (msg.name === 'candles') {
-          const { symbol, timeframe, candles } = msg.msg;
-          const key = `${symbol}_${timeframe}`;
-          const cb = this.callbacks.get(key);
-          if (cb && candles && candles.length) {
-            // Преобразуем данные в формат klines
-            const klines = candles.map((c) => ({
-              openTime: c.timestamp * 1000,
-              open: c.open,
-              high: c.high,
-              low: c.low,
-              close: c.close,
-              closeTime: (c.timestamp + this._timeframeToMinutes(timeframe) * 60) * 1000 - 1,
-              volume: c.volume || 0,
-            }));
-            cb(klines);
-          }
-        }
-      } catch (e) {
-        // console.error('WS message parse error:', e);
-      }
-    });
-
-    this.ws.on('close', () => {
-      this.connected = false;
-      console.log('PO WS closed, reconnect in 5s...');
-      setTimeout(() => this.connect(), 5000);
-    });
-
-    this.ws.on('error', (e) => {
-      this.connected = false;
-      console.error('PO WS error:', e.message);
-      this.ws.close();
-    });
-  }
-
-  _timeframeToMinutes(tf) {
-    if (typeof tf === 'number') return tf; // если уже число
-    // tf в формате '1m', '5m', '1h', '4h', '1d'
-    if (tf.endsWith('m')) return Number(tf.slice(0, -1));
-    if (tf.endsWith('h')) return Number(tf.slice(0, -1)) * 60;
-    if (tf.endsWith('d')) return Number(tf.slice(0, -1)) * 1440;
-    return 1;
-  }
-
-  _sendSubscribe(pair, timeframe) {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(
-        JSON.stringify({
-          name: 'candles.subscribe',
-          msg: { symbol: pair, timeframe },
-        }),
-      );
-    }
-  }
-
-  subscribeCandles(pair, timeframe, callback) {
-    const key = `${pair}_${timeframe}`;
-    this.callbacks.set(key, callback);
-    if (!this.subscribed.has(key)) {
-      this.subscribed.add(key);
-    }
-    if (this.connected) {
-      this._sendSubscribe(pair, timeframe);
-    }
-  }
-}
-
-const poClient = new POClient(PO_TOKEN);
-poClient.connect();
-
-// --- Кэш свечей для всех пар и таймфреймов ---
+// --- Кэш свечей ---
 const candlesCache = new Map(); // ключ: pair_timeframe, значение: klines array
 
-// --- Автоматическая подписка на все пары и таймфреймы ---
-function autoSubscribeAll() {
-  const allPairs = [...languages.ru.pairsMain, ...languages.ru.pairsOTC];
-  const allTimeframes = languages.ru.timeframes; // можно расширить, взять из любого языка
+// --- Вспомогательные функции ---
 
-  for (const pair of allPairs) {
-    for (const tf of allTimeframes) {
-      poClient.subscribeCandles(pair, tf.value, (klines) => {
-        candlesCache.set(`${pair}_${tf.value}`, klines);
-      });
-    }
-  }
-}
-autoSubscribeAll();
-
-// --- Далее идут ваши функции индикаторов, анализа, генерации графика и т.д. ---
-// Я оставляю их без изменений, только заменю вызов генерации данных на использование кеша candlesCache
-
-// --- Индикаторы и анализ (оставлены ваши функции без изменений) ---
-
-// (Вставьте сюда все ваши функции calculateSMA, calculateRSI, calculateEMA, calculateMACD, calculateStochastic, findSupportResistance, isVolumeDecreasing, detectCandlePattern, detectRSIDivergence, checkBreakoutWithRetest, generateDetailedRecommendation, analyzeIndicators, generateChartImage из вашего кода)
-
-// --- Вспомогательная функция для разбивки массива на чанки ---
 function chunkArray(arr, size) {
   const result = [];
   for (let i = 0; i < arr.length; i += size) {
     result.push(arr.slice(i, i + size));
   }
   return result;
+}
+
+// Преобразование пары из формата PO в Alpha Vantage
+// Alpha Vantage требует from_symbol и to_symbol отдельно, например EUR и USD
+function parsePairAlphaVantage(pair) {
+  // Уберём OTC_ если есть
+  if (pair.startsWith('OTC_')) pair = pair.slice(4);
+  // Разобьём на две части по 3 символа
+  const from_symbol = pair.slice(0, 3);
+  const to_symbol = pair.slice(3);
+  return { from_symbol, to_symbol };
+}
+
+// Преобразование таймфрейма из вашего списка в Alpha Vantage
+// Alpha Vantage поддерживает: 1min, 5min, 15min, 30min, 60min
+// Для 4h и 1d — Alpha Vantage не поддерживает FX_INTRADAY, можно использовать FX_DAILY для 1d
+function mapTimeframeToAlphaVantage(tfValue) {
+  if (tfValue === '1min') return '1min';
+  if (tfValue === '5min') return '5min';
+  if (tfValue === '15min') return '15min';
+  if (tfValue === '60min') return '60min';
+  if (tfValue === '240min') return null; // нет поддержки 4h в FX_INTRADAY
+  if (tfValue === '1day') return null; // нужно FX_DAILY
+  return null;
+}
+
+// --- Функция получения свечей с Alpha Vantage ---
+async function fetchCandlesAlphaVantage(pair, timeframe, outputsize = 'compact') {
+  const { from_symbol, to_symbol } = parsePairAlphaVantage(pair);
+  const interval = mapTimeframeToAlphaVantage(timeframe);
+
+  if (!interval) {
+    // Для 1day (день) используем FX_DAILY
+    if (timeframe === '1day') {
+      const url = `https://www.alphavantage.co/query?function=FX_DAILY&from_symbol=${from_symbol}&to_symbol=${to_symbol}&apikey=${ALPHAVANTAGE_API_KEY}&outputsize=${outputsize}`;
+      const response = await axios.get(url);
+      const data = response.data;
+      if (!data['Time Series FX (Daily)']) throw new Error('No daily data');
+      return Object.entries(data['Time Series FX (Daily)'])
+        .map(([time, candle]) => ({
+          openTime: new Date(time).getTime(),
+          open: parseFloat(candle['1. open']),
+          high: parseFloat(candle['2. high']),
+          low: parseFloat(candle['3. low']),
+          close: parseFloat(candle['4. close']),
+          volume: 0,
+        }))
+        .sort((a, b) => a.openTime - b.openTime);
+    }
+    throw new Error('Unsupported timeframe for Alpha Vantage FX_INTRADAY');
+  }
+
+  const url = `https://www.alphavantage.co/query?function=FX_INTRADAY&from_symbol=${from_symbol}&to_symbol=${to_symbol}&interval=${interval}&apikey=${ALPHAVANTAGE_API_KEY}&outputsize=${outputsize}`;
+  const response = await axios.get(url);
+  const data = response.data;
+  const key = `Time Series FX (${interval})`;
+  if (!data[key]) throw new Error('No intraday data');
+
+  return Object.entries(data[key])
+    .map(([time, candle]) => ({
+      openTime: new Date(time).getTime(),
+      open: parseFloat(candle['1. open']),
+      high: parseFloat(candle['2. high']),
+      low: parseFloat(candle['3. low']),
+      close: parseFloat(candle['4. close']),
+      volume: 0,
+    }))
+    .sort((a, b) => a.openTime - b.openTime);
+}
+
+// --- Индикаторы и анализ ---
+// Вставьте сюда ваши функции calculateSMA, calculateRSI, calculateEMA, calculateMACD, calculateStochastic, findSupportResistance, isVolumeDecreasing, detectCandlePattern, detectRSIDivergence, checkBreakoutWithRetest, generateDetailedRecommendation, analyzeIndicators, generateChartImage
+// Для примера вставляю заглушки — замените на ваши реализации:
+
+function calculateSMA(data, period) {
+  const sma = [];
+  for (let i = 0; i < data.length; i++) {
+    if (i < period - 1) {
+      sma.push(null);
+      continue;
+    }
+    const sum = data.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0);
+    sma.push(sum / period);
+  }
+  return sma;
+}
+function calculateRSI(data, period) {
+  // Реализуйте ваш RSI
+  return new Array(data.length).fill(null);
+}
+function calculateEMA(data, period) {
+  // Реализуйте ваш EMA
+  return new Array(data.length).fill(null);
+}
+function calculateMACD(data) {
+  // Реализуйте ваш MACD
+  return { macdLine: [], signalLine: [], histogram: [] };
+}
+function calculateStochastic(data) {
+  // Реализуйте ваш Stochastic
+  return { k: [], d: [] };
+}
+function findSupportResistance(data) {
+  // Реализуйте поиск уровней поддержки и сопротивления
+  return { supports: [], resistances: [] };
+}
+function isVolumeDecreasing(data) {
+  // Реализуйте проверку объёма
+  return false;
+}
+function detectCandlePattern(data) {
+  // Реализуйте обнаружение паттернов
+  return false;
+}
+function detectRSIDivergence(data) {
+  // Реализуйте обнаружение дивергенций RSI
+  return false;
+}
+function checkBreakoutWithRetest(data) {
+  // Реализуйте проверку пробоев с ретестом
+  return null;
+}
+function generateDetailedRecommendation() {
+  // Реализуйте генерацию рекомендаций
+  return '';
+}
+function analyzeIndicators() {
+  // Реализуйте анализ индикаторов
+  return 'Анализ пока не реализован.';
+}
+async function generateChartImage() {
+  // Реализуйте генерацию графика с помощью chartJSNodeCanvas
+  // Для примера возвращаем пустой буфер
+  return Buffer.from([]);
 }
 
 // --- Функция для вывода выбора валютных пар ---
@@ -397,35 +397,38 @@ bot.on('callback_query', async (ctx) => {
 
     await ctx.editMessageText(langData.texts.analysisStarting(displayNames[ctx.session.pair][lang], tf.label));
 
-    const key = `${ctx.session.pair}_${tf.value}`;
-    const klines = candlesCache.get(key);
-
-    if (!klines || klines.length < 20) {
-      await ctx.reply(langData.texts.errorGeneratingChart + '\n' + langData.texts.pleaseChoosePairFirst);
-      return;
-    }
-
-    const closes = klines.map(k => k.close);
-    const sma5 = calculateSMA(closes, 5);
-    const sma15 = calculateSMA(closes, 15);
-    const rsi = calculateRSI(closes, 14);
-    const macd = calculateMACD(closes);
-    const stochastic = calculateStochastic(klines);
-    const { supports, resistances } = findSupportResistance(klines);
-
-    const analysisText = analyzeIndicators(
-      klines,
-      sma5,
-      sma15,
-      rsi,
-      macd,
-      stochastic,
-      supports,
-      resistances,
-      lang,
-    );
-
     try {
+      // Получаем свечи с Alpha Vantage
+      const klines = await fetchCandlesAlphaVantage(ctx.session.pair, tf.value, 'compact');
+
+      if (!klines || klines.length < 20) {
+        await ctx.reply(langData.texts.errorGeneratingChart + '\n' + langData.texts.pleaseChoosePairFirst);
+        return;
+      }
+
+      // Кэшируем
+      candlesCache.set(`${ctx.session.pair}_${tf.value}`, klines);
+
+      const closes = klines.map(k => k.close);
+      const sma5 = calculateSMA(closes, 5);
+      const sma15 = calculateSMA(closes, 15);
+      const rsi = calculateRSI(closes, 14);
+      const macd = calculateMACD(closes);
+      const stochastic = calculateStochastic(klines);
+      const { supports, resistances } = findSupportResistance(klines);
+
+      const analysisText = analyzeIndicators(
+        klines,
+        sma5,
+        sma15,
+        rsi,
+        macd,
+        stochastic,
+        supports,
+        resistances,
+        lang,
+      );
+
       const chartBuffer = await generateChartImage(
         klines,
         sma5,
@@ -445,7 +448,7 @@ bot.on('callback_query', async (ctx) => {
       await ctx.reply(langData.texts.nextAnalysis, nextBtn);
     } catch (e) {
       console.error(e);
-      await ctx.reply(langData.texts.errorGeneratingChart);
+      await ctx.reply(langData.texts.errorGeneratingChart + '\n' + e.message);
     }
 
     return;
@@ -460,6 +463,3 @@ console.log('Bot started');
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
-
-// --- Вставьте сюда ваши функции calculateSMA, calculateRSI, calculateEMA, calculateMACD, calculateStochastic, findSupportResistance, isVolumeDecreasing, detectCandlePattern, detectRSIDivergence, checkBreakoutWithRetest, generateDetailedRecommendation, analyzeIndicators, generateChartImage ---
-// Их код не изменился, поэтому не дублирую здесь, но в вашем проекте должен быть полный код этих функций.
