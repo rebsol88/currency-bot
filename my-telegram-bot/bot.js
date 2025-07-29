@@ -22,7 +22,7 @@ const chartJSNodeCanvas = new ChartJSNodeCanvas({
   },
 });
 
-// --- Языковые данные и пары (без OTC и без 1day) ---
+// --- Языковые данные и пары (без OTC и без 1day и без 4 часа) ---
 const languages = {
   ru: {
     name: 'Русский',
@@ -30,15 +30,13 @@ const languages = {
       'EURUSD', 'USDJPY', 'GBPUSD', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD', 'EURGBP',
       'EURJPY', 'GBPJPY', 'CHFJPY', 'AUDJPY', 'EURCHF', 'EURCAD', 'AUDCAD', 'NZDJPY',
     ],
-    // OTC пары убраны
     pairsOTC: [],
     timeframes: [
       { label: '1 минута', value: '1min', minutes: 1 },
       { label: '5 минут', value: '5min', minutes: 5 },
       { label: '15 минут', value: '15min', minutes: 15 },
       { label: '1 час', value: '60min', minutes: 60 },
-      { label: '4 часа', value: '240min', minutes: 240 }, // 4 часа оставил, но не поддерживается Alpha Vantage FX_INTRADAY
-      // { label: '1 день', value: '1day', minutes: 1440 }, // убрал
+      // 4 часа и 1 день убраны
     ],
     texts: {
       chooseLanguage: 'Выберите язык / Choose language',
@@ -81,8 +79,7 @@ const languages = {
       { label: '5 minutes', value: '5min', minutes: 5 },
       { label: '15 minutes', value: '15min', minutes: 15 },
       { label: '1 hour', value: '60min', minutes: 60 },
-      { label: '4 hours', value: '240min', minutes: 240 },
-      // { label: '1 day', value: '1day', minutes: 1440 }, // убрал
+      // 4 hours and 1 day removed
     ],
     texts: {
       chooseLanguage: 'Choose language / Выберите язык',
@@ -132,7 +129,6 @@ const displayNames = {
   EURCAD: { ru: 'EUR/CAD', en: 'EUR/CAD' },
   AUDCAD: { ru: 'AUD/CAD', en: 'AUD/CAD' },
   NZDJPY: { ru: 'NZD/JPY', en: 'NZD/JPY' },
-  // OTC пары удалены
 };
 
 // --- Кэш свечей ---
@@ -162,8 +158,7 @@ function mapTimeframeToAlphaVantage(tfValue) {
   if (tfValue === '5min') return '5min';
   if (tfValue === '15min') return '15min';
   if (tfValue === '60min') return '60min';
-  if (tfValue === '240min') return null; // 4 часа не поддерживается FX_INTRADAY Alpha Vantage
-  // 1day удалён
+  // 4 часа и 1 день не поддерживаются FX_INTRADAY Alpha Vantage
   return null;
 }
 
