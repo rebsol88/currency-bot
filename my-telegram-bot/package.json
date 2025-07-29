@@ -1,0 +1,12 @@
+{
+  "name": "my-telegram-bot",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "telegraf": "^4.12.2",
+    "chartjs-node-canvas": "^4.0.8",
+    "chartjs-plugin-annotation": "^1.1.0",
+    "moment": "^2.29.4",
+    "ws": "^8.13.0"
+  }
+}
