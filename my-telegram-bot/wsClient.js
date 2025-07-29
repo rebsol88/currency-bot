@@ -8,9 +8,19 @@ class MarketDataClient {
   constructor() {
     this.client = new WebSocketClient(wsUrl, ssid);
     this.candlesCache = {};
+
     this.client.on('authorized', () => {
       console.log('WebSocket AUTH SUCCESS');
     });
+
+    this.client.on('disconnected', ({ code, reason }) => {
+      console.warn(`WebSocket disconnected: code=${code}, reason=${reason.toString()}`);
+    });
+
+    this.client.on('error', (error) => {
+      console.error('WebSocket error:', error);
+    });
+
     this.client.connect();
   }
 
@@ -18,7 +28,7 @@ class MarketDataClient {
     const rand = Math.floor(Math.random() * 90) + 10;
     const cu = Math.floor(Date.now() / 1000);
     const t = cu + 2 * 60 * 60;
-    return parseInt(`${t}${rand}`);
+    return parseInt(`${t}${rand}`, 10);
   }
 
   async fetchCandleData(asset, period, count) {
@@ -43,21 +53,4 @@ class MarketDataClient {
         close: item.close,
         high: item.high,
         low: item.low,
-        closeTime: item.time * 1000 + period * 1000 - 1,
-        volume: 0,
-      }));
-
-      this.candlesCache[`${asset}_${period}`] = candles;
-      return candles;
-    } catch (e) {
-      console.error('Ошибка получения свечей:', e);
-      return [];
-    }
-  }
-
-  getCachedCandles(asset, period) {
-    return this.candlesCache[`${asset}_${period}`] || [];
-  }
-}
-
-export default new MarketDataClient();
+        closeTime: item.time * 1000 + period * 1000 - 
