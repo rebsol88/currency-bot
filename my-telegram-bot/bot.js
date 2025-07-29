@@ -6,7 +6,7 @@ import axios from 'axios';
 
 // --- Настройки ---
 const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
-const ALPHAVANTAGE_API_KEY = '6XLTMJEEILYL1VE3'; // Ваш ключ Alpha Vantage
+const ALPHAVANTAGE_API_KEY = '58LT2IYE0RQUOX8Z'; // Ваш ключ Alpha Vantage
 
 const bot = new Telegraf(BOT_TOKEN);
 bot.use(session());
