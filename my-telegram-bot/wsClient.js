@@ -53,4 +53,21 @@ class MarketDataClient {
         close: item.close,
         high: item.high,
         low: item.low,
-        closeTime: item.time * 1000 + period * 1000 - 
+        closeTime: item.time * 1000 + period * 1000 - 1,
+        volume: 0,
+      }));
+
+      this.candlesCache[`${asset}_${period}`] = candles;
+      return candles;
+    } catch (e) {
+      console.error('Ошибка получения свечей:', e);
+      return [];
+    }
+  }
+
+  getCachedCandles(asset, period) {
+    return this.candlesCache[`${asset}_${period}`] || [];
+  }
+}
+
+export default new MarketDataClient();
