@@ -1,6 +1,7 @@
 import { Telegraf, Markup, session } from 'telegraf';
 import WebSocket from 'ws';
 import axios from 'axios';
+import { load } from 'cheerio';  // импорт исправлен на именованный
 
 // --- Настройки ---
 const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
@@ -90,8 +91,6 @@ function chunkArray(arr, size) {
 }
 
 // --- Авторизация и получение cookie, userSecret, uid с зеркала ---
-import cheerio from 'cheerio';
-
 async function loginPocketOption() {
   try {
     // Получаем страницу логина для сессии и возможного CSRF
@@ -105,7 +104,7 @@ async function loginPocketOption() {
     const cookieString = cookies.map(c => c.split(';')[0]).join('; ');
 
     // Если нужен CSRF токен — парсим его (пример)
-    const $ = cheerio.load(loginPageResp.data);
+    const $ = load(loginPageResp.data);
     const csrfToken = $('input[name=csrf_token]').attr('value') || '';
 
     // Логинимся POST запросом
@@ -145,7 +144,7 @@ async function loginPocketOption() {
     }
 
     // Парсим userId и userSecret из скриптов страницы
-    const $$ = cheerio.load(finalHtml);
+    const $$ = load(finalHtml);
     let userId = null;
     let userSecret = null;
 
