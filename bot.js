@@ -2,11 +2,11 @@ import { Telegraf, Markup, session } from 'telegraf';
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
 import Chart from 'chart.js/auto/auto.js';
 import annotationPlugin from 'chartjs-plugin-annotation';
-import axios from 'axios';
-import * as cheerio from 'cheerio';  // <-- исправлено здесь
+import WebSocket from 'ws';
 
 // --- Настройки ---
 const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
+const PO_SESSION_TOKEN = '66d566bf45f739b6cd9462819ae3b475'; // Вставьте сюда ваш sessionToken Pocket Option
 const bot = new Telegraf(BOT_TOKEN);
 bot.use(session());
 
@@ -21,98 +21,84 @@ const chartJSNodeCanvas = new ChartJSNodeCanvas({
   },
 });
 
-// Новые пары из onlinesignals.pro (без OTC)
-const pairs = [
-  "ALL", "EURUSD", "GBPUSD", "EURGBP", "GBPJPY", "EURJPY", "USDJPY",
-  "AUDCAD", "NZDUSD", "USDCHF", "XAUUSD", "XAGUSD", "AUDUSD",
-  "USDCAD", "AUDJPY", "GBPCAD", "GBPCHF", "GBPAUD", "EURAUD",
-  "USDNOK", "EURNZD", "USDSEK"
-];
+// --- Ваши данные languages, displayNames и все функции анализа и генерации графика без изменений ---
+// Вставьте сюда весь ваш код с languages, displayNames, индикаторами, анализом, генерацией графика и пр.
+// (оставьте без изменений, как в вашем исходном коде)
 
-// Таймфреймы как на сайте
-const timeframes = [
-  { label: 'Все таймфреймы', value: 'ALL' },
-  { label: 'TF M5', value: '5' },
-  { label: 'TF M15', value: '15' },
-  { label: 'TF M30', value: '30' },
-  { label: 'TF H1', value: '60' }
-];
+// --- Функция получения реальных свечей с Pocket Option через WebSocket ---
+function getPocketOptionCandles(pair, timeframe, count = 100) {
+  return new Promise((resolve, reject) => {
+    const tfMap = { '1m': 1, '5m': 5, '15m': 15, '1h': 60, '4h': 240, '1d': 1440 };
+    const tfMinutes = tfMap[timeframe];
+    if (!tfMinutes) {
+      reject(new Error('Unsupported timeframe'));
+      return;
+    }
 
-// Тексты (только русский для упрощения)
-const texts = {
-  choosePair: 'Выберите валютную пару:',
-  chooseTimeframe: 'Выберите таймфрейм:',
-  analysisStarting: (pair, tf) => `Начинаю анализ ${pair} на таймфрейме ${tf}...`,
-  unknownCmd: 'Неизвестная команда',
-  pleaseChoosePairFirst: 'Пожалуйста, сначала выберите валютную пару.',
-  errorFetchingSignals: 'Ошибка при получении данных с сайта.',
-  noSignalsFound: 'Сигналы по выбранным параметрам не найдены.',
-  nextAnalysis: 'Следующий анализ',
-};
+    const ws = new WebSocket('wss://ws.pocketoption.com/socket.io/?EIO=3&transport=websocket');
+    let isAuthorized = false;
 
-// --- Функция парсинга сигналов с сайта onlinesignals.pro ---
-async function fetchSignals(pair, tf) {
-  try {
-    // Загружаем страницу с сигналами
-    const url = 'https://onlinesignals.pro/active-signals'; // пример URL
-    const { data } = await axios.get(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0' }
+    ws.on('open', () => {
+      // Авторизация
+      ws.send(JSON.stringify(['auth', { sessionToken: PO_SESSION_TOKEN }]));
     });
 
-    const $ = cheerio.load(data);
+    ws.on('message', (data) => {
+      try {
+        const str = data.toString();
+        if (str === '3' || str === '2') return; // heartbeat
 
-    // Таблица с сигналами имеет id="status"
-    // Каждая строка — tr, колонки — td, порядок колонок примерно:
-    // [0] Пара, [1] Время, [2] Экспирация, [3] Вход, [4] Тип сделки, [5] Стратегия, [6] Мартингейл
+        if (str.startsWith('42')) {
+          const jsonStr = str.slice(2);
+          const parsed = JSON.parse(jsonStr);
+          const event = parsed[0];
+          const payload = parsed[1];
 
-    const signals = [];
-
-    $('#status tr').each((i, el) => {
-      const tds = $(el).find('td');
-      if (tds.length < 7) return;
-
-      const symbol = $(tds[0]).text().trim();
-      const time = $(tds[1]).text().trim();
-      const expiry = $(tds[2]).text().trim();
-      const entry = $(tds[3]).text().trim();
-      const dealType = $(tds[4]).text().trim();
-      const strategy = $(tds[5]).text().trim();
-      const martingale = $(tds[6]).text().trim();
-
-      // Фильтруем по валютной паре и таймфрейму
-      // Для таймфрейма на сайте нет явного поля — будем считать, что сигналы для всех таймфреймов (т.к. нет данных)
-      // Можно добавить фильтр по symbol, если pair != ALL
-      if ((pair === 'ALL' || symbol === pair) && (tf === 'ALL' || true)) {
-        signals.push({ symbol, time, expiry, entry, dealType, strategy, martingale });
+          if (event === 'auth') {
+            if (payload && payload.success) {
+              isAuthorized = true;
+              // Подписка на свечи
+              ws.send(JSON.stringify(['candles.subscribe', { instrument: pair, timeframe: tfMinutes }]));
+            } else {
+              reject(new Error('Authorization failed'));
+              ws.close();
+            }
+          } else if (event === 'candles') {
+            if (Array.isArray(payload) && payload.length > 0) {
+              const candles = payload
+                .slice(-count)
+                .map(c => ({
+                  openTime: c.t,
+                  open: c.o,
+                  high: c.h,
+                  low: c.l,
+                  close: c.c,
+                  closeTime: c.t + tfMinutes * 60 * 1000 - 1,
+                  volume: c.v,
+                }));
+              resolve(candles);
+              ws.close();
+            }
+          }
+        }
+      } catch (e) {
+        reject(e);
+        ws.close();
       }
     });
 
-    if (signals.length === 0) {
-      return texts.noSignalsFound;
-    }
-
-    // Формируем текст с анализом по сигналам (пример)
-    let message = `Анализ сигналов для ${pair} на таймфрейме ${tf}:\n\n`;
-
-    signals.forEach((s, idx) => {
-      message += `#${idx + 1} ${s.symbol} | Время: ${s.time} | Экспирация: ${s.expiry}\nВход: ${s.entry} | Тип: ${s.dealType}\nСтратегия: ${s.strategy} | Мартингейл: ${s.martingale}\n\n`;
+    ws.on('error', (err) => reject(err));
+    ws.on('close', () => {
+      if (!isAuthorized) reject(new Error('Connection closed before authorization'));
     });
-
-    message += '⚠️ Это не торговые сигналы, а аналитическая сводка с сайта onlinesignals.pro';
-
-    return message;
-
-  } catch (e) {
-    console.error(e);
-    return texts.errorFetchingSignals;
-  }
+  });
 }
 
-// --- Функции для генерации графиков и анализа (оставляем из вашего кода) ---
+// --- Telegram Bot ---
 
-// ... (копируйте сюда ваши функции generateFakeOHLCFromTime, calculateSMA, calculateRSI, calculateEMA, calculateMACD, calculateStochastic, findSupportResistance, analyzeIndicators, generateChartImage) ...
+const historyData = {}; // { 'EURUSD_1m': [klines...] }
 
-// --- Вспомогательная функция для разбивки массива на чанки ---
+// Вспомогательная функция для разбивки массива на чанки
 function chunkArray(arr, size) {
   const result = [];
   for (let i = 0; i < arr.length; i += size) {
@@ -121,103 +107,162 @@ function chunkArray(arr, size) {
   return result;
 }
 
-// --- Отправка выбора пары ---
-async function sendPairSelection(ctx) {
-  const buttons = pairs.map(p => Markup.button.callback(p, `pair_${p}`));
-  const keyboard = chunkArray(buttons, 3);
-  await ctx.editMessageText(texts.choosePair, Markup.inlineKeyboard(keyboard));
+// Функция для вывода выбора валютных пар (используется при старте и при "Следующий анализ")
+async function sendPairSelection(ctx, lang) {
+  const langData = languages[lang];
+  const mainButtons = langData.pairsMain.map(p => Markup.button.callback(displayNames[p][lang], displayNames[p][lang]));
+  const otcButtons = langData.pairsOTC.map(p => Markup.button.callback(displayNames[p][lang], displayNames[p][lang]));
+
+  const mainKeyboard = chunkArray(mainButtons, 2);
+  const otcKeyboard = chunkArray(otcButtons, 2);
+
+  const maxRows = Math.max(mainKeyboard.length, otcKeyboard.length);
+  const keyboardFinal = [];
+
+  for (let i = 0; i < maxRows; i++) {
+    const leftButtons = mainKeyboard[i] || [];
+    const rightButtons = otcKeyboard[i] || [];
+
+    while (leftButtons.length < 2) leftButtons.push(Markup.button.callback(' ', 'noop'));
+    while (rightButtons.length < 2) rightButtons.push(Markup.button.callback(' ', 'noop'));
+
+    keyboardFinal.push([leftButtons[0], rightButtons[0]]);
+    keyboardFinal.push([leftButtons[1], rightButtons[1]]);
+  }
+
+  await ctx.editMessageText(langData.texts.choosePair, Markup.inlineKeyboard(keyboardFinal));
 }
 
-// --- Отправка выбора таймфрейма ---
-async function sendTimeframeSelection(ctx) {
-  const buttons = timeframes.map(tf => Markup.button.callback(tf.label, `tf_${tf.value}`));
-  const keyboard = chunkArray(buttons, 3);
-  await ctx.editMessageText(texts.chooseTimeframe, Markup.inlineKeyboard(keyboard));
-}
-
-// --- Обработка команды /start ---
+// /start — выбор языка
 bot.start(async (ctx) => {
   ctx.session = {};
-  await ctx.reply(texts.choosePair, Markup.inlineKeyboard(chunkArray(pairs.map(p => Markup.button.callback(p, `pair_${p}`)), 3)));
+  const buttons = [
+    Markup.button.callback(languages.ru.name, 'lang_ru'),
+    Markup.button.callback(languages.en.name, 'lang_en'),
+  ];
+  await ctx.reply(languages.ru.texts.chooseLanguage, Markup.inlineKeyboard(buttons));
 });
 
-// --- Обработка callback_query ---
-bot.on('callback_query', async (ctx) => {
-  const data = ctx.callbackQuery.data;
-  if (data.startsWith('pair_')) {
-    const pair = data.slice(5);
-    ctx.session.pair = pair;
-    await ctx.answerCbQuery();
-    await sendTimeframeSelection(ctx);
+// Обработка выбора языка
+bot.action(/lang_(.+)/, async (ctx) => {
+  const lang = ctx.match[1];
+  if (!languages[lang]) {
+    await ctx.answerCbQuery('Unsupported language');
     return;
   }
-  if (data.startsWith('tf_')) {
-    const tf = data.slice(3);
+  ctx.session.lang = lang;
+  await ctx.answerCbQuery();
+
+  await sendPairSelection(ctx, lang);
+});
+
+// Обработка нажатий inline кнопок с валютными парами и таймфреймами
+bot.on('callback_query', async (ctx) => {
+  const data = ctx.callbackQuery.data;
+  const lang = ctx.session.lang || 'ru'; // По умолчанию русский
+  const langData = languages[lang];
+
+  if (data === 'noop') {
+    await ctx.answerCbQuery();
+    return;
+  }
+
+  if (data === 'next_analysis') {
+    await ctx.answerCbQuery();
+    ctx.session.pair = null;
+    ctx.session.timeframe = null;
+    await sendPairSelection(ctx, lang);
+    return;
+  }
+
+  const pairEntry = Object.entries(displayNames).find(([, names]) => names[lang] === data);
+  if (pairEntry) {
+    const pair = pairEntry[0];
+    ctx.session.pair = pair;
+    await ctx.answerCbQuery();
+
+    const tfButtons = langData.timeframes.map(tf => Markup.button.callback(tf.label, tf.label));
+    const inlineTfButtons = chunkArray(tfButtons, 2);
+
+    await ctx.editMessageText(langData.texts.chooseTimeframe, Markup.inlineKeyboard(inlineTfButtons));
+    return;
+  }
+
+  const tf = langData.timeframes.find(t => t.label === data);
+  if (tf) {
     if (!ctx.session.pair) {
-      await ctx.answerCbQuery(texts.pleaseChoosePairFirst, { show_alert: true });
+      await ctx.answerCbQuery(langData.texts.pleaseChoosePairFirst);
       return;
     }
     ctx.session.timeframe = tf;
     await ctx.answerCbQuery();
-    await ctx.editMessageText(texts.analysisStarting(ctx.session.pair, tf));
 
-    // Получаем сигналы с сайта (анализ, не просто сигналы)
-    const analysisText = await fetchSignals(ctx.session.pair, tf);
+    await ctx.editMessageText(langData.texts.analysisStarting(displayNames[ctx.session.pair][lang], tf.label));
 
-    // Генерируем фейковые данные и график для визуализации (ваши функции)
-    const now = Date.now();
-    // Для примера используем 100 свечей с интервалом tf в минутах
-    const intervalMinutes = timeframes.find(t => t.value === tf)?.value === 'ALL' ? 15 : parseInt(tf) || 15;
-    const klines = generateFakeOHLCFromTime(now - intervalMinutes * 60 * 1000 * 100, 100, intervalMinutes, ctx.session.pair);
-
-    const closes = klines.map(k => k.close);
-    const sma5 = calculateSMA(closes, 5);
-    const sma15 = calculateSMA(closes, 15);
-    const rsi = calculateRSI(closes, 14);
-    const macd = calculateMACD(closes);
-    const stochastic = calculateStochastic(klines);
-    const { supports, resistances } = findSupportResistance(klines);
-
-    const detailedAnalysis = analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances, 'ru');
+    const key = `${ctx.session.pair}_${tf.value}`;
 
     try {
-      const chartBuffer = await generateChartImage(klines, sma5, sma15, supports, resistances, ctx.session.pair, tf, 'ru');
+      // Если пара OTC, Pocket Option API не поддерживает, используем фейковые данные
+      let klines;
+      if (ctx.session.pair.startsWith('OTC_')) {
+        const now = Date.now();
+        klines = generateFakeOHLCFromTime(now - tf.minutes * 60 * 1000 * 100, 100, tf.minutes, ctx.session.pair);
+      } else {
+        klines = await getPocketOptionCandles(ctx.session.pair, tf.value, 100);
+      }
+      historyData[key] = klines;
 
-      // Отправляем сначала текст с анализом с сайта, потом подробный анализ + график
-      await ctx.reply(analysisText);
-      await ctx.reply(detailedAnalysis);
-      await ctx.replyWithPhoto({ source: chartBuffer });
+      const closes = klines.map(k => k.close);
+      const sma5 = calculateSMA(closes, 5);
+      const sma15 = calculateSMA(closes, 15);
+      const rsi = calculateRSI(closes, 14);
+      const macd = calculateMACD(closes);
+      const stochastic = calculateStochastic(klines);
+      const { supports, resistances } = findSupportResistance(klines);
 
-      // Кнопка "Следующий анализ"
+      const analysisText = analyzeIndicators(
+        klines,
+        sma5,
+        sma15,
+        rsi,
+        macd,
+        stochastic,
+        supports,
+        resistances,
+        lang
+      );
+
+      const chartBuffer = await generateChartImage(
+        klines,
+        sma5,
+        sma15,
+        supports,
+        resistances,
+        ctx.session.pair,
+        tf.label,
+        lang
+      );
+
+      await ctx.replyWithPhoto({ source: chartBuffer }, { caption: analysisText });
+
       const nextBtn = Markup.inlineKeyboard([
-        Markup.button.callback(texts.nextAnalysis, 'next_analysis'),
+        Markup.button.callback(langData.texts.nextAnalysis, 'next_analysis'),
       ]);
-      await ctx.reply(texts.nextAnalysis, nextBtn);
+      await ctx.reply(langData.texts.nextAnalysis, nextBtn);
+
     } catch (e) {
       console.error(e);
-      await ctx.reply(texts.errorFetchingSignals);
+      await ctx.reply(langData.texts.errorGeneratingChart);
     }
     return;
   }
-  if (data === 'next_analysis') {
-    ctx.session.pair = null;
-    ctx.session.timeframe = null;
-    await ctx.answerCbQuery();
-    await sendPairSelection(ctx);
-    return;
-  }
 
-  await ctx.answerCbQuery(texts.unknownCmd, { show_alert: true });
+  await ctx.answerCbQuery(langData.texts.unknownCmd);
 });
 
-// --- Ваши функции генерации OHLC, индикаторов и анализа ---
-// Вставьте сюда все ваши функции из оригинального кода (generateFakeOHLCFromTime, calculateSMA, calculateRSI, calculateEMA, calculateMACD, calculateStochastic, findSupportResistance, analyzeIndicators, generateChartImage)
-// Для компактности не дублирую их здесь, но используйте их без изменений.
-
-// --- Запуск бота ---
+// Запуск бота
 bot.launch();
 console.log('Bot started');
 
-// Обработка graceful stop
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
