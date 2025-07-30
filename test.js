@@ -7,7 +7,7 @@ const TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
 
 // WebSocket параметры
 const WS_URL = 'wss://demo-api-eu.po.market/socket.io/?EIO=4&transport=websocket';
-const SSID = '42["auth",{"session":"knp5iga4ok9e5jj5psmp50hlrh","isDemo":1,"uid":89012109,"platform":1}]';
+const SSID = '42["auth",{"sessionToken":"eea7f7588a9a0d84b68e0010a0026544","uid":"91717690","lang":"ru","currentUrl":"cabinet","isChart":1}]';
 
 // Глобальная переменная для хранения данных свечей
 let candlesData = [];
