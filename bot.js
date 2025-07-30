@@ -1,4 +1,4 @@
-const { io } = require('socket.io-client');
+import { io } from 'socket.io-client';
 
 // URL для WebSocket-соединения (замените на актуальный, если отличается)
 const POCKET_OPTION_WS_URL = 'https://api.po.market';
