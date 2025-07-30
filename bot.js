@@ -3,7 +3,7 @@ import { io } from 'socket.io-client';
 // URL для WebSocket-соединения (замените на актуальный, если отличается)
 const POCKET_OPTION_WS_URL = 'https://api.po.market';
 
-// Данные авторизации
+// Данные авторизации (замените на актуальные значения, если они устарели)
 const authData = {
   sessionToken: 'eea7f7588a9a0d84b68e0010a0026544',
   uid: '91717690',
@@ -68,7 +68,7 @@ function connectToPocketOption() {
   ws.on('connect_error', (error) => {
     console.error('Connection error:', error.message);
     isWsConnected = false;
-    setTimeout(connectToPocketOption, 5000);
+    setTimeout(connectToPocketOption, 5000); // Переподключение через 5 секунд
   });
 }
 
@@ -90,3 +90,8 @@ function requestCandles(asset, timeframe, count) {
   console.log('Requesting candles:', requestData);
   ws.emit('candles', requestData); // Отправляем запрос на свечи (проверьте точное название события в браузере)
 }
+
+// Тестовый запрос свечей через 10 секунд после запуска (для проверки)
+setTimeout(() => {
+  requestCandles('BTCUSD', 60, 100);
+}, 10000);
