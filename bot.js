@@ -5,7 +5,7 @@ import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
 import annotationPlugin from 'chartjs-plugin-annotation';
 
 // Замените на ваш токен
-const BOT_TOKEN = 'ВАШ_ТОКЕН_ЗДЕСЬ';
+const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
 
 // Инициализация бота и сессий
 const bot = new Telegraf(BOT_TOKEN);
