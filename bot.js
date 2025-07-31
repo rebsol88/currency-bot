@@ -1,15 +1,12 @@
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 import { Telegraf, Markup, session } from 'telegraf';
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
 import Chart from 'chart.js/auto/auto.js';
 import annotationPlugin from 'chartjs-plugin-annotation';
 import WebSocket from 'ws';
-
 // --- Настройки ---
 const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
 const bot = new Telegraf(BOT_TOKEN);
 bot.use(session());
-
 const width = 800;
 const height = 600;
 const chartJSNodeCanvas = new ChartJSNodeCanvas({
@@ -467,7 +464,6 @@ bot.on('callback_query', async ctx => {
     await sendPairSelection(ctx, lang);
     return;
   }
-  // Проверяем валютную пару
   if (pairs.includes(data)) {
     ctx.session.pair = data;
     await ctx.answerCbQuery();
@@ -476,7 +472,6 @@ bot.on('callback_query', async ctx => {
     await ctx.editMessageText(langData.texts.chooseTimeframe, Markup.inlineKeyboard(keyboard));
     return;
   }
-  // Проверяем таймфрейм
   const tf = langData.timeframes.find(t => t.value === data);
   if (tf) {
     if (!ctx.session.pair) {
