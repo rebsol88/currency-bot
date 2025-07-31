@@ -3,10 +3,22 @@
   "version": "1.0.0",
   "type": "module",
   "dependencies": {
-    "telegraf": "^4.12.2",
-    "chartjs-node-canvas": "^4.0.8",
-    "chartjs-plugin-annotation": "^1.1.0",
+    "chart.js": "^3.9.1",
+    "chartjs-node-canvas": "^4.1.6",
+    "chartjs-plugin-annotation": "^1.4.0",
     "moment": "^2.29.4",
+    "node-fetch": "^2.7.0",
+    "telegraf": "^4.16.3",
+    "tesseract.js": "^6.0.1",
     "ws": "^8.13.0"
-  }
+  },
+  "description": "",
+  "main": "bot.js",
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
 }
