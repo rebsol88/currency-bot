@@ -18,21 +18,18 @@ const chartJSNodeCanvas = new ChartJSNodeCanvas({
     ChartJS.register(annotationPlugin);
   },
 });
-
 // --- Валютные пары и таймфреймы ---
 const pairs = [
   'EURUSD','GBPUSD','EURGBP','GBPJPY','EURJPY','USDJPY','AUDCAD','NZDUSD','USDCHF',
   'XAUUSD','XAGUSD','AUDUSD','USDCAD','AUDJPY','GBPCAD','GBPCHF','GBPAUD','EURAUD',
   'USDNOK','EURNZD','USDSEK'
 ];
-
 const timeframes = [
   { label: '5 мин', value: '5', minutes: 5 },
   { label: '15 мин', value: '15', minutes: 15 },
   { label: '30 мин', value: '30', minutes: 30 },
   { label: '1 час', value: '60', minutes: 60 },
 ];
-
 const languages = {
   ru: {
     name: 'Русский',
@@ -101,17 +98,14 @@ const languages = {
     },
   },
 };
-
 // Отображаемые имена пар
 const displayNames = pairs.reduce((acc, p) => {
   acc[p] = { ru: p, en: p };
   return acc;
 }, {});
-
 // WebSocket подключение
 const liveData = {};
 const signalsSocket = new WebSocket('wss://onlinesignals.pro/');
-
 signalsSocket.on('open', () => {
   console.log('[WS] Connected');
 });
@@ -139,7 +133,6 @@ signalsSocket.on('message', (data) => {
 });
 signalsSocket.on('close', () => console.log('[WS] Closed'));
 signalsSocket.on('error', (err) => console.error('[WS] Error', err));
-
 // Преобразование сигнала в OHLC
 function convertSignalToKline(signal) {
   const dtStr = signal.candle.replace(/(\d{4})\.(\d{2})\.(\d{2}) (\d{2}):(\d{2})/, '$1-$2-$3T$4:$5:00Z');
@@ -156,7 +149,6 @@ function convertSignalToKline(signal) {
     volume: 0,
   };
 }
-
 // Фейковый генератор данных (для резерва)
 function getBasePrice(pair) {
   if (pair.startsWith('OTC_')) return 1.2 + (Math.random() - 0.5) * 0.3;
@@ -190,7 +182,6 @@ function generateFakeOHLCFromTime(startTimeMs, count, intervalMinutes, pair) {
   }
   return data;
 }
-
 // --- SMA ---
 function calculateSMA(data, period) {
   const sma = [];
@@ -204,7 +195,6 @@ function calculateSMA(data, period) {
   }
   return sma;
 }
-
 // --- RSI ---
 function calculateRSI(data, period) {
   const rsi = [];
@@ -231,7 +221,6 @@ function calculateRSI(data, period) {
   for (let i = 0; i < period; i++) rsi[i] = null;
   return rsi;
 }
-
 // --- EMA ---
 function calculateEMA(data, period) {
   const k = 2 / (period + 1);
@@ -242,13 +231,12 @@ function calculateEMA(data, period) {
   }
   return ema;
 }
-
 // --- MACD ---
 function calculateMACD(data, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9) {
   const emaFast = calculateEMA(data, fastPeriod);
   const emaSlow = calculateEMA(data, slowPeriod);
   const macdLine = emaFast.map((val, idx) => {
-    if (val === undefined || emaSlow[idx] === undefined) return null;
+    if (val === null || emaSlow[idx] === null) return null;
     return val - emaSlow[idx];
   });
   const macdLineForSignal = macdLine.slice(slowPeriod - 1).filter(v => v !== null);
@@ -260,7 +248,6 @@ function calculateMACD(data, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9)
   });
   return { macdLine, signalLine, histogram };
 }
-
 // --- Стохастик ---
 function calculateStochastic(klines, kPeriod = 14, dPeriod = 3) {
   const kValues = [];
@@ -288,7 +275,6 @@ function calculateStochastic(klines, kPeriod = 14, dPeriod = 3) {
   }
   return { kValues, dValues };
 }
-
 // --- Поиск уровней поддержки и сопротивления ---
 function findSupportResistance(klines) {
   const supports = [];
@@ -303,18 +289,12 @@ function findSupportResistance(klines) {
   const uniqResistances = [...new Set(resistances)].sort((a, b) => b - a).slice(0, 3);
   return { supports: uniqSupports, resistances: uniqResistances };
 }
-
 // --- Анализ индикаторов ---
 function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances, lang) {
-  // (Используйте ваш оригинальный текст и анализ из кода бота)
-  // Ниже пример сокращенный
-
   const texts = languages[lang].texts;
   const last = klines.length - 1;
   const price = klines[last].close;
-
   let text = '';
-  // Тренд по SMA
   if (sma5[last] !== null && sma15[last] !== null) {
     if (sma5[last] > sma15[last]) {
       text += `📈 ${texts.trendUp}\n`;
@@ -324,73 +304,65 @@ function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports,
       text += `➖ ${texts.trendNone}\n`;
     }
   } else {
-    text += `⚠️ ${lang==='ru'?'Недостаточно данных для оценки тренда по SMA.':'Not enough data for SMA trend.'}\n`;
+    text += `⚠️ ${lang === 'ru' ? 'Недостаточно данных для оценки тренда по SMA.' : 'Not enough data for SMA trend.'}\n`;
   }
-  // RSI
   if (rsi[last] !== null) {
-    if (rsi[last] > 70) text += `🚦 RSI высокий (${rsi[last].toFixed(1)}), ${lang==='ru'?'перекупленность.' : 'overbought.'}\n`;
-    else if (rsi[last] < 30) text += `🚦 RSI низкий (${rsi[last].toFixed(1)}), ${lang==='ru'?'перепроданность.' : 'oversold.'}\n`;
+    if (rsi[last] > 70) text += `🚦 RSI высокий (${rsi[last].toFixed(1)}), ${lang === 'ru' ? 'перекупленность.' : 'overbought.'}\n`;
+    else if (rsi[last] < 30) text += `🚦 RSI низкий (${rsi[last].toFixed(1)}), ${lang === 'ru' ? 'перепроданность.' : 'oversold.'}\n`;
     else text += `⚪ RSI нейтральный (${rsi[last].toFixed(1)}).\n`;
   }
-
-  // MACD, Стохастик, поддержка/сопротивление и т.п. — добавляйте по аналогии
-
   return text;
 }
-
-// --- Генерация изображения графика ---
+// --- Генерация графика ---
 async function generateChartImage(klines, sma5, sma15, supports, resistances, pair, timeframeLabel, lang) {
-  const labels = klines.map(k => new Date(k.openTime).toISOString().substr(11,5));
+  const labels = klines.map(k => new Date(k.openTime).toISOString().substr(11, 5));
   const closePrices = klines.map(k => k.close);
   const texts = languages[lang].texts;
-
-  const supportAnnotations = supports.map((s,i) => ({
+  const supportAnnotations = supports.map((s, i) => ({
     type: 'line',
     yMin: s,
     yMax: s,
     borderColor: 'green',
     borderWidth: 2,
-    borderDash: [6,6],
+    borderDash: [6, 6],
     label: {
-      content: `${texts.supportLabel} ${i+1} (${s.toFixed(5)})`,
+      content: `${texts.supportLabel} ${i + 1} (${s.toFixed(5)})`,
       enabled: true,
       position: 'start',
       backgroundColor: 'green',
       color: 'white',
-      font: { size: 12 }
-    }
+      font: { size: 12 },
+    },
   }));
-
-  const resistanceAnnotations = resistances.map((r,i) => ({
+  const resistanceAnnotations = resistances.map((r, i) => ({
     type: 'line',
     yMin: r,
     yMax: r,
     borderColor: 'red',
     borderWidth: 2,
-    borderDash: [6,6],
+    borderDash: [6, 6],
     label: {
-      content: `${texts.resistanceLabel} ${i+1} (${r.toFixed(5)})`,
+      content: `${texts.resistanceLabel} ${i + 1} (${r.toFixed(5)})`,
       enabled: true,
       position: 'start',
       backgroundColor: 'red',
       color: 'white',
-      font: { size: 12 }
-    }
+      font: { size: 12 },
+    },
   }));
-
   const config = {
     type: 'line',
     data: {
       labels,
       datasets: [
         {
-          label: lang==='ru'?'Цена Close':'Close Price',
+          label: lang === 'ru' ? 'Цена Close' : 'Close Price',
           data: closePrices,
           borderColor: 'black',
           fill: false,
           tension: 0.3,
           borderWidth: 1.5,
-          pointRadius: 0
+          pointRadius: 0,
         },
         {
           label: 'SMA 5',
@@ -399,7 +371,7 @@ async function generateChartImage(klines, sma5, sma15, supports, resistances, pa
           fill: false,
           tension: 0.3,
           borderWidth: 1.5,
-          pointRadius: 0
+          pointRadius: 0,
         },
         {
           label: 'SMA 15',
@@ -408,59 +380,57 @@ async function generateChartImage(klines, sma5, sma15, supports, resistances, pa
           fill: false,
           tension: 0.3,
           borderWidth: 1.5,
-          pointRadius: 0
-        }
-      ]
+          pointRadius: 0,
+        },
+      ],
     },
     options: {
       responsive: false,
       plugins: {
         title: {
           display: true,
-          text: `${lang==='ru'?'Аналитика по паре':'Analysis for pair'} ${pair} — ${lang==='ru'?'Таймфрейм':'Timeframe'}: ${timeframeLabel}`,
-          font: { size:18, weight:'bold' }
+          text: `${lang === 'ru' ? 'Аналитика по паре' : 'Analysis for pair'} ${pair} — ${lang === 'ru' ? 'Таймфрейм' : 'Timeframe'}: ${timeframeLabel}`,
+          font: { size: 18, weight: 'bold' },
         },
-        legend: { position: 'top', labels: { font: { size:14 } } },
-        annotation: { annotations: [...supportAnnotations, ...resistanceAnnotations] }
+        legend: { position: 'top', labels: { font: { size: 14 } } },
+        annotation: { annotations: [...supportAnnotations, ...resistanceAnnotations] },
       },
       scales: {
         y: { title: { display: true, text: texts.priceLabel }, beginAtZero: false },
-        x: { title: { display: true, text: texts.timeLabel }, ticks: { maxTicksLimit: 15 } }
-      }
-    }
+        x: { title: { display: true, text: texts.timeLabel }, ticks: { maxTicksLimit: 15 } },
+      },
+    },
   };
-
   return await chartJSNodeCanvas.renderToBuffer(config);
 }
-
 // Вспомогательная функция для разбивки массива на чанки
 function chunkArray(arr, size) {
   const result = [];
-  for(let i=0;i<arr.length;i+=size) result.push(arr.slice(i,i+size));
+  for(let i=0; i<arr.length; i+=size) {
+    result.push(arr.slice(i, i + size));
+  }
   return result;
 }
-
 // Отправка выбора валютной пары
 async function sendPairSelection(ctx, lang) {
   const langData = languages[lang];
-  const buttonsMain = langData.pairs.map(p => Markup.button.callback(displayNames[p][lang], displayNames[p][lang]));
-  const keyboard = chunkArray(buttonsMain, 2);
+  const buttons = langData.pairs.map(p => Markup.button.callback(displayNames[p][lang], displayNames[p][lang]));
+  const keyboard = chunkArray(buttons, 2);
   await ctx.editMessageText(langData.texts.choosePair, Markup.inlineKeyboard(keyboard));
 }
-
-// Получение данных для анализа (по живым данным или фейковым)
+// Получение данных для анализа
 async function getKlines(pair, timeframe) {
   const key = `${pair}_${timeframe.value}`;
   if(liveData[key] && liveData[key].signals.length > 30) {
-    const klines = liveData[key].signals.map(convertSignalToKline).sort((a,b)=>a.openTime-b.openTime);
+    const klines = liveData[key].signals.map(convertSignalToKline).sort((a,b) => a.openTime - b.openTime);
     return klines;
-  } else {
+  }
+  else {
     const now = Date.now();
     return generateFakeOHLCFromTime(now - timeframe.minutes * 60 * 1000 * 100, 100, timeframe.minutes, pair);
   }
 }
-
-// Бот /start - выбор языка
+// Обработка команд бота
 bot.start(async ctx => {
   ctx.session = {};
   const buttons = [
@@ -469,8 +439,6 @@ bot.start(async ctx => {
   ];
   await ctx.reply(languages.ru.texts.chooseLanguage, Markup.inlineKeyboard(buttons));
 });
-
-// Обработка выбора языка
 bot.action(/lang_(.+)/, async ctx => {
   const lang = ctx.match[1];
   if(!languages[lang]){
@@ -481,8 +449,6 @@ bot.action(/lang_(.+)/, async ctx => {
   await ctx.answerCbQuery();
   await sendPairSelection(ctx, lang);
 });
-
-// Обработка нажатий кнопок выбора пары и таймфрейма
 bot.on('callback_query', async ctx => {
   const data = ctx.callbackQuery.data;
   const lang = ctx.session.lang || 'ru';
@@ -495,41 +461,43 @@ bot.on('callback_query', async ctx => {
     await ctx.answerCbQuery();
     ctx.session.pair = null;
     ctx.session.timeframe = null;
-    return await sendPairSelection(ctx, lang);
-  }
-  const pairEntry = Object.entries(displayNames).find(([,names]) => names[lang] === data) || pairs.includes(data) ? data : null;
-  if(pairEntry){
-    ctx.session.pair = Array.isArray(pairEntry) ? pairEntry[0] : pairEntry;
-    await ctx.answerCbQuery();
-    const tfButtons = langData.timeframes.map(tf => Markup.button.callback(tf.label, tf.value));
-    const inlineTfButtons = chunkArray(tfButtons, 2);
-    await ctx.editMessageText(langData.texts.chooseTimeframe, Markup.inlineKeyboard(inlineTfButtons));
+    await sendPairSelection(ctx, lang);
     return;
   }
+  // Проверяем валютную пару
+  if (pairs.includes(data)) {
+    ctx.session.pair = data;
+    await ctx.answerCbQuery();
+    const tfButtons = langData.timeframes.map(tf => Markup.button.callback(tf.label, tf.value));
+    const keyboard = chunkArray(tfButtons, 2);
+    await ctx.editMessageText(langData.texts.chooseTimeframe, Markup.inlineKeyboard(keyboard));
+    return;
+  }
+  // Проверяем таймфрейм
   const tf = langData.timeframes.find(t => t.value === data);
-  if(tf){
-    if(!ctx.session.pair){
+  if (tf) {
+    if (!ctx.session.pair) {
       await ctx.answerCbQuery(langData.texts.pleaseChoosePairFirst);
       return;
     }
     ctx.session.timeframe = tf;
     await ctx.answerCbQuery();
     await ctx.editMessageText(langData.texts.analysisStarting(displayNames[ctx.session.pair][lang], tf.label));
-    try{
+    try {
       const klines = await getKlines(ctx.session.pair, tf);
-      const closes = klines.map(k=>k.close);
-      const sma5 = calculateSMA(closes,5);
-      const sma15 = calculateSMA(closes,15);
-      const rsi = calculateRSI(closes,14);
+      const closes = klines.map(k => k.close);
+      const sma5 = calculateSMA(closes, 5);
+      const sma15 = calculateSMA(closes, 15);
+      const rsi = calculateRSI(closes, 14);
       const macd = calculateMACD(closes);
       const stochastic = calculateStochastic(klines);
-      const {supports, resistances} = findSupportResistance(klines);
-      const analysisText = analyzeIndicators(klines,sma5,sma15,rsi,macd,stochastic,supports,resistances,lang);
-      const chartBuffer = await generateChartImage(klines,sma5,sma15,supports,resistances,ctx.session.pair,tf.label,lang);
-      await ctx.replyWithPhoto({source: chartBuffer},{caption: analysisText});
-      const nextBtn = Markup.inlineKeyboard([Markup.button.callback(langData.texts.nextAnalysis,'next_analysis')]);
+      const { supports, resistances } = findSupportResistance(klines);
+      const analysisText = analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances, lang);
+      const chartBuffer = await generateChartImage(klines, sma5, sma15, supports, resistances, ctx.session.pair, tf.label, lang);
+      await ctx.replyWithPhoto({ source: chartBuffer }, { caption: analysisText });
+      const nextBtn = Markup.inlineKeyboard([Markup.button.callback(langData.texts.nextAnalysis, 'next_analysis')]);
       await ctx.reply(langData.texts.nextAnalysis, nextBtn);
-    }catch(e){
+    } catch (e) {
       console.error(e);
       await ctx.reply(langData.texts.errorGeneratingChart);
     }
@@ -537,7 +505,6 @@ bot.on('callback_query', async ctx => {
   }
   await ctx.answerCbQuery(langData.texts.unknownCmd);
 });
-
 // Запуск бота
 bot.launch();
 console.log('Bot started');
