@@ -106,7 +106,9 @@ const displayNames = pairs.reduce((acc, p) => {
 }, {});
 // WebSocket подключение
 const liveData = {};
-const signalsSocket = new WebSocket('wss://onlinesignals.pro/');
+const signalsSocket = new WebSocket('wss://onlinesignals.pro/', {
+  rejectUnauthorized: false
+});
 signalsSocket.on('open', () => {
   console.log('[WS] Connected');
 });
