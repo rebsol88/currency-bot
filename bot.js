@@ -4,7 +4,7 @@ import Tesseract from 'tesseract.js'; // Импорт именно так
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
 import annotationPlugin from 'chartjs-plugin-annotation';
 
-const BOT_TOKEN = 'ВАШ_ТОКЕН';
+const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
 
 const bot = new Telegraf(BOT_TOKEN);
 bot.use(session());
