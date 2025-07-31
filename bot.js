@@ -4,7 +4,6 @@ import Tesseract from 'tesseract.js';
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
 import annotationPlugin from 'chartjs-plugin-annotation';
 
-// Ваш токен Telegram бота
 const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
 
 const bot = new Telegraf(BOT_TOKEN);
@@ -20,25 +19,21 @@ const chartJSNodeCanvas = new ChartJSNodeCanvas({
   },
 });
 
-// OCR воркер
-let worker;
+const worker = Tesseract.createWorker(); // logger убран!
 
 (async () => {
-  worker = await Tesseract.createWorker({
-    logger: (m) => console.log(m),
-  });
+  await worker.load();
   await worker.loadLanguage('eng');
   await worker.initialize('eng');
-  console.log('OCR воркер инициализирован');
+  console.log('OCR worker инициализирован');
 })().catch(console.error);
 
 async function recognizeText(buffer) {
-  if (!worker) throw new Error('OCR воркер ещё не инициализирован');
+  if (!worker) throw new Error('OCR worker ещё не инициализирован');
   const { data: { text } } = await worker.recognize(buffer);
   return text;
 }
 
-// Функция SMA
 function calculateSMA(data, period) {
   const sma = [];
   for (let i = 0; i < data.length; i++) {
@@ -52,10 +47,9 @@ function calculateSMA(data, period) {
   return sma;
 }
 
-// Построение упрощённых OHLC данных
 function buildOHLC(price, count = 100) {
   const now = Date.now();
-  const intervalMs = 60 * 60 * 1000; // 1 час
+  const intervalMs = 60 * 60 * 1000;
   const data = [];
   for (let i = 0; i < count; i++) {
     const time = now - intervalMs * (count - i);
@@ -72,10 +66,10 @@ function buildOHLC(price, count = 100) {
   return data;
 }
 
-// Генерация графика
 async function generateChart(klines, sma5) {
   const labels = klines.map(k => new Date(k.openTime).toISOString().substr(11, 5));
   const closePrices = klines.map(k => k.close);
+
   const config = {
     type: 'line',
     data: {
@@ -87,18 +81,14 @@ async function generateChart(klines, sma5) {
     },
     options: {
       responsive: false,
-      plugins: {
-        legend: { position: 'top' },
-      },
-      scales: {
-        y: { beginAtZero: false },
-      },
+      plugins: { legend: { position: 'top' } },
+      scales: { y: { beginAtZero: false } },
     },
   };
+
   return await chartJSNodeCanvas.renderToBuffer(config);
 }
 
-// Парсер пары и цены из текста OCR
 function parsePairAndPrice(text) {
   const pairMatch = text.toUpperCase().match(/([A-Z]{3})[\/\-]?([A-Z]{3})/);
   if (!pairMatch) return null;
@@ -109,7 +99,6 @@ function parsePairAndPrice(text) {
   return { pair, price };
 }
 
-// Обработка фото от пользователя
 bot.on('photo', async (ctx) => {
   try {
     await ctx.reply('Обрабатываю скриншот, подождите...');
@@ -134,22 +123,3 @@ bot.on('photo', async (ctx) => {
     const klines = buildOHLC(price);
     const closes = klines.map(k => k.close);
     const sma5 = calculateSMA(closes, 5);
-
-    const chartBuffer = await generateChart(klines, sma5);
-
-    await ctx.replyWithPhoto({ source: chartBuffer }, {
-      caption: `Анализ для ${pair}\nSMA(5): ${sma5[sma5.length - 1]?.toFixed(5) || 'N/A'}`,
-    });
-
-  } catch (error) {
-    console.error(error);
-    await ctx.reply('Ошибка при обработке скриншота.');
-  }
-});
-
-bot.start(ctx => ctx.reply('Привет! Отправьте скриншот графика с котировками для анализа.'));
-
-bot.launch();
-
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
