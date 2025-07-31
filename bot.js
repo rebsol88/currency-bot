@@ -1,6 +1,6 @@
 import { Telegraf, session } from 'telegraf';
 import fetch from 'node-fetch';
-import Tesseract from 'tesseract.js';
+import { createWorker } from '@tesseract.js/node-browser';
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
 import annotationPlugin from 'chartjs-plugin-annotation';
 
@@ -15,24 +15,23 @@ const height = 600;
 const chartJSNodeCanvas = new ChartJSNodeCanvas({
   width,
   height,
-  chartCallback: (ChartJS) => {
+  chartCallback: ChartJS => {
     ChartJS.register(annotationPlugin);
   },
 });
 
-let worker; // глобальный воркер
+let worker;
 
-async function initWorker() {
-  worker = await Tesseract.createWorker();
+(async () => {
+  worker = createWorker();
+  await worker.load();
   await worker.loadLanguage('eng');
   await worker.initialize('eng');
-  console.log('OCR worker инициализирован');
-}
-
-await initWorker();
+  console.log('OCR worker initialized');
+})();
 
 async function recognizeText(buffer) {
-  if (!worker) throw new Error('OCR worker не инициализирован');
+  if (!worker) throw new Error('OCR worker not initialized');
   const { data: { text } } = await worker.recognize(buffer);
   return text;
 }
@@ -44,8 +43,7 @@ function calculateSMA(data, period) {
       sma.push(null);
       continue;
     }
-    const window = data.slice(i - period + 1, i + 1);
-    const sum = window.reduce((a, b) => a + b, 0);
+    const sum = data.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0);
     sma.push(sum / period);
   }
   return sma;
@@ -53,10 +51,10 @@ function calculateSMA(data, period) {
 
 function buildOHLC(price, count = 100) {
   const now = Date.now();
-  const intervalMs = 60 * 60 * 1000;
-  let klines = [];
-  for(let i = 0; i < count; i++) {
-    let time = now - intervalMs * (count - i);
+  const intervalMs = 60 * 60 * 1000; // 1 hour
+  const klines = [];
+  for (let i = 0; i < count; i++) {
+    const time = now - intervalMs * (count - i);
     klines.push({
       openTime: time,
       open: price,
@@ -79,14 +77,28 @@ async function generateChart(klines, sma5) {
     data: {
       labels,
       datasets: [
-        { label: 'Close Price', data: closePrices, borderColor: 'black', fill: false },
-        { label: 'SMA 5', data: sma5, borderColor: 'limegreen', fill: false },
+        {
+          label: 'Close Price',
+          data: closePrices,
+          borderColor: 'black',
+          fill: false,
+        },
+        {
+          label: 'SMA 5',
+          data: sma5,
+          borderColor: 'limegreen',
+          fill: false,
+        },
       ],
     },
     options: {
       responsive: false,
-      plugins: { legend: { position: 'top' } },
-      scales: { y: { beginAtZero: false } },
+      plugins: {
+        legend: { position: 'top' },
+      },
+      scales: {
+        y: { beginAtZero: false },
+      },
     },
   };
 
@@ -95,17 +107,17 @@ async function generateChart(klines, sma5) {
 
 function parsePairAndPrice(text) {
   const pairMatch = text.toUpperCase().match(/([A-Z]{3})[\/\-]?([A-Z]{3})/);
-  if(!pairMatch) return null;
+  if (!pairMatch) return null;
   const pair = pairMatch[1] + pairMatch[2];
   const priceMatch = text.match(/\d+\.\d{3,6}/);
-  if(!priceMatch) return null;
+  if (!priceMatch) return null;
   const price = parseFloat(priceMatch[0]);
   return { pair, price };
 }
 
-bot.on('photo', async (ctx) => {
+bot.on('photo', async ctx => {
   try {
-    await ctx.reply('Обрабатываю скриншот, подождите немного...');
+    await ctx.reply('Processing your screenshot, please wait...');
     const photos = ctx.message.photo;
     const fileId = photos[photos.length - 1].file_id;
     const fileLink = await ctx.telegram.getFileLink(fileId);
@@ -113,16 +125,16 @@ bot.on('photo', async (ctx) => {
     const buffer = await response.buffer();
 
     const text = await recognizeText(buffer);
-    console.log('OCR текст:', text);
+    console.log('OCR Text:', text);
 
     const parsed = parsePairAndPrice(text);
-    if(!parsed) {
-      await ctx.reply('Не смогли распознать пару или цену. Попробуйте другой скриншот.');
+    if (!parsed) {
+      await ctx.reply('Failed to detect currency pair or price. Please send a clearer screenshot.');
       return;
     }
 
     const { pair, price } = parsed;
-    await ctx.reply(`Пара: ${pair}, Цена: ${price}`);
+    await ctx.reply(`Currency Pair: ${pair}\nPrice: ${price}`);
 
     const klines = buildOHLC(price);
     const closes = klines.map(k => k.close);
@@ -130,18 +142,19 @@ bot.on('photo', async (ctx) => {
     const chartBuffer = await generateChart(klines, sma5);
 
     await ctx.replyWithPhoto({ source: chartBuffer }, {
-      caption: `Анализ пары ${pair}\nSMA(5): ${sma5[sma5.length - 1]?.toFixed(5) || 'N/A'}`,
+      caption: `Analysis for ${pair}\nSMA(5): ${sma5[sma5.length - 1]?.toFixed(5) || 'N/A'}`,
     });
-  } catch(e) {
-    console.error(e);
-    await ctx.reply('Ошибка при обработке скриншота.');
+  } catch (err) {
+    console.error(err);
+    await ctx.reply('Error processing the screenshot.');
   }
 });
 
-bot.start(ctx => ctx.reply('Привет! Отправьте скриншот графика с парой и ценой для анализа.'));
+bot.start(ctx => ctx.reply('Hello! Send me a screenshot of a chart with currency pair and price for analysis.'));
 
 bot.launch();
+
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
 
-console.log('Бот запущен');
+console.log('Bot started');
