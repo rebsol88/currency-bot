@@ -1,12 +1,11 @@
-import { Telegraf, Markup, session } from 'telegraf';
+import { Telegraf, session } from 'telegraf';
 import fetch from 'node-fetch';
 import { createWorker } from 'tesseract.js';
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
-import Chart from 'chart.js/auto/auto.js';
 import annotationPlugin from 'chartjs-plugin-annotation';
 
 // --- Настройки ---
-const BOT_TOKEN = 'ВАШ_ТОКЕН_ЗДЕСЬ';
+const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
 
 const bot = new Telegraf(BOT_TOKEN);
 bot.use(session());
@@ -22,13 +21,11 @@ const chartJSNodeCanvas = new ChartJSNodeCanvas({
 });
 
 // OCR worker
-const worker = createWorker({
-  logger: m => console.log(m), // Уберите, если не нужно логирование
-});
+const worker = createWorker();
 
 async function recognizeTextFromBuffer(buffer) {
   await worker.load();
-  await worker.loadLanguage('eng');  // Можно добавить 'rus' если нужно русский
+  await worker.loadLanguage('eng');  // Добавьте 'rus' если нужен русский язык
   await worker.initialize('eng');
   const { data: { text } } = await worker.recognize(buffer);
   await worker.terminate();
@@ -36,7 +33,6 @@ async function recognizeTextFromBuffer(buffer) {
 }
 
 // --- Аналитические функции (пример SMA) ---
-
 function calculateSMA(data, period) {
   const sma = [];
   for (let i = 0; i < data.length; i++) {
@@ -49,9 +45,6 @@ function calculateSMA(data, period) {
   }
   return sma;
 }
-
-// Добавьте сюда остальные функции анализа (RSI, MACD, Stochastic и т.п.) по аналогии с вашим кодом
-// Чтобы не делать ответ слишком длинным, здесь пример SMA, остальные — из вашего кода
 
 // --- Функция построения упрощенных OHLC из цены (для демонстрации) ---
 function buildSimpleOHLC(price, count = 100) {
@@ -109,22 +102,18 @@ async function generateChartImage(klines, sma5) {
       },
     },
   };
-
   return await chartJSNodeCanvas.renderToBuffer(configuration);
 }
 
 // --- Парсер пары валют и цены из OCR текста ---
-// Для демонстрации — очень простой парсер (вы можете усложнить)
 function parsePriceAndPair(text) {
   // Пример парсинга валюной пары как "EURUSD" из текста (разрешим варианты EUR/USD, EUR-USD)
-  const pairMatch = text.match(/([A-Z]{3})[\/\-]?([A-Z]{3})/);
+  const pairMatch = text.toUpperCase().match(/([A-Z]{3})[\/\-]?([A-Z]{3})/);
   if (!pairMatch) return null;
   const pair = pairMatch[1] + pairMatch[2];
-
-  // Найдем первое число с плавающей точкой, предположим цену
+  // Найдем первое число с плавающей точкой, предположим цена
   const priceMatch = text.match(/\d+\.\d{3,6}/);
   if (!priceMatch) return null;
-
   const price = parseFloat(priceMatch[0]);
   return { pair, price };
 }
@@ -143,7 +132,6 @@ bot.on('photo', async (ctx) => {
     console.log('Распознанный текст с изображения:', text);
 
     const parsed = parsePriceAndPair(text);
-
     if (!parsed) {
       await ctx.reply('Не удалось распознать валютную пару или цену. Попробуйте другой скриншот.');
       return;
@@ -152,7 +140,7 @@ bot.on('photo', async (ctx) => {
 
     await ctx.reply(`Ваша пара: ${pair}, цена: ${price}`);
 
-    // Формируем OHLC для дальнейшего анализа (простейшее заполнение)
+    // Формируем OHLC для дальнейшего анализа
     const klines = buildSimpleOHLC(price);
 
     // Анализируем (только SMA пример)
@@ -162,9 +150,9 @@ bot.on('photo', async (ctx) => {
     // Генерируем график
     const chartBuffer = await generateChartImage(klines, sma5);
 
-    // Отправляем график с комментом
+    // Отправляем график с комментарием
     await ctx.replyWithPhoto({ source: chartBuffer }, {
-      caption: `Анализ по паре ${pair} на основе присланного скриншота.\nSMA(5) около ${sma5[sma5.length -1]?.toFixed(5) || 'N/A'}`,
+      caption: `Анализ по паре ${pair} на основе присланного скриншота.\nSMA(5) около ${sma5[sma5.length - 1]?.toFixed(5) || 'N/A'}`,
     });
 
   } catch (error) {
@@ -173,7 +161,7 @@ bot.on('photo', async (ctx) => {
   }
 });
 
-// Старт и базовый обработчик команд
+// Базовый обработчик команды /start
 bot.start(ctx => ctx.reply('Привет! Отправьте мне скриншот графика с котировками, и я сделаю анализ.'));
 
 // Запуск бота
