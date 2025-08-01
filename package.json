@@ -1,7 +1,7 @@
 {
-  "name": "real-currency-quotes-bot",
+  "name": "pocket-option-parser",
   "version": "1.0.0",
-  "description": "Telegram bot with real currency quotes",
+  "description": "Pocket Option currency quotes parser",
   "main": "bot.js",
   "type": "module",
   "scripts": {
@@ -10,6 +10,6 @@
   },
   "dependencies": {
     "telegraf": "^4.15.6",
-    "node-fetch": "^3.3.2"
+    "puppeteer": "^21.11.0"
   }
 }
