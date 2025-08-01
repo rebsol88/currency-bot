@@ -1,24 +1,19 @@
 {
-  "name": "my-telegram-bot",
+  "name": "telegram-bot",
   "version": "1.0.0",
-  "type": "module",
-  "dependencies": {
-    "chart.js": "^3.9.1",
-    "chartjs-node-canvas": "^4.1.6",
-    "chartjs-plugin-annotation": "^1.4.0",
-    "moment": "^2.29.4",
-    "node-fetch": "^2.7.0",
-    "telegraf": "^4.16.3",
-    "tesseract.js": "^6.0.1",
-    "ws": "^8.13.0"
-  },
-  "description": "",
+  "description": "Telegram bot for currency analysis",
   "main": "bot.js",
-  "devDependencies": {},
+  "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node bot.js",
+    "dev": "node --watch bot.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC"
+  "dependencies": {
+    "telegraf": "^4.15.6",
+    "chartjs-node-canvas": "^4.1.6",
+    "chart.js": "^4.4.0",
+    "chartjs-plugin-annotation": "^3.0.1",
+    "node-fetch": "^3.3.2",
+    "ws": "^8.14.2"
+  }
 }
