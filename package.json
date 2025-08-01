@@ -1,7 +1,7 @@
 {
   "name": "telegram-bot",
   "version": "1.0.0",
-  "description": "Telegram bot for currency analysis",
+  "description": "Telegram bot for currency quotes",
   "main": "bot.js",
   "type": "module",
   "scripts": {
@@ -9,11 +9,6 @@
     "dev": "node --watch bot.js"
   },
   "dependencies": {
-    "telegraf": "^4.15.6",
-    "chartjs-node-canvas": "^4.1.6",
-    "chart.js": "^4.4.0",
-    "chartjs-plugin-annotation": "^3.0.1",
-    "node-fetch": "^3.3.2",
-    "ws": "^8.14.2"
+    "telegraf": "^4.15.6"
   }
 }
