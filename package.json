@@ -1,5 +1,5 @@
 {
-  "name": "telegram-bot",
+  "name": "currency-quotes-bot",
   "version": "1.0.0",
   "description": "Telegram bot for currency quotes",
   "main": "bot.js",
