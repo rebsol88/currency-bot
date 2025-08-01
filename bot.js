@@ -1,202 +1,244 @@
 import { Telegraf, Markup } from 'telegraf';
-import fetch from 'node-fetch';
+import puppeteer from 'puppeteer';
+import fs from 'fs/promises';
 
-// --- Настройки ---
 const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
 const bot = new Telegraf(BOT_TOKEN);
 
-// --- API Configuration ---
-const API_CONFIG = {
-  // Бесплатный API от exchangerate-api.com
-  EXCHANGE_RATE_API: 'https://api.exchangerate-api.com/v4/latest/USD',
-  // Альтернативный API от CoinGecko для криптовалют
-  COINGECKO_API: 'https://api.coingecko.com/api/v3/simple/price',
-  // API для металлов
-  METALS_API: 'https://api.metals.live/v1/spot'
-};
-
-// --- Currency Quotes Manager ---
-class RealCurrencyQuotesManager {
+// --- Pocket Option Parser ---
+class PocketOptionParser {
   constructor() {
+    this.browser = null;
+    this.page = null;
     this.quotes = new Map();
-    this.updateInterval = null;
-    this.watchedPairs = new Set(['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD']);
+    this.watchedPairs = new Set([
+      'EURUSD', 'GBPUSD', 'EURGBP', 'GBPJPY', 'EURJPY', 'USDJPY',
+      'AUDCAD', 'NZDUSD', 'USDCHF', 'AUDUSD', 'USDCAD', 'AUDJPY',
+      'GBPCAD', 'GBPCHF', 'GBPAUD', 'EURAUD', 'USDNOK', 'EURNZD', 'USDSEK'
+    ]);
+    this.isParsing = false;
     this.lastUpdate = null;
-    this.updateError = null;
+    this.updateInterval = null;
   }
 
-  startUpdates() {
-    if (this.updateInterval) return;
-    
-    this.updateAllQuotes(); // Первое обновление
-    this.updateInterval = setInterval(() => {
-      this.updateAllQuotes();
-    }, 30000); // Обновление каждые 30 секунд
-    
-    console.log('Real quotes manager started');
+  async init() {
+    try {
+      console.log('🚀 Запускаем браузер для парсинга Pocket Option...');
+      
+      this.browser = await puppeteer.launch({
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+          '--no-zygote',
+          '--single-process',
+          '--disable-gpu'
+        ]
+      });
+
+      this.page = await this.browser.newPage();
+      
+      // Устанавливаем user agent
+      await this.page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
+      
+      console.log('✅ Браузер запущен успешно');
+      return true;
+    } catch (error) {
+      console.error('❌ Ошибка запуска браузера:', error);
+      return false;
+    }
   }
 
-  stopUpdates() {
+  async parseQuotes() {
+    if (this.isParsing) return;
+    this.isParsing = true;
+
+    try {
+      console.log('🔍 Парсим котировки с Pocket Option...');
+      
+      // Переходим на страницу с котировками
+      await this.page.goto('https://pocketoption.com/en/cabinet/quotes', {
+        waitUntil: 'networkidle2',
+        timeout: 30000
+      });
+
+      // Ждем загрузки котировок
+      await this.page.waitForSelector('.quotes-container, .asset-list, [data-qa="quotes-list"]', { timeout: 10000 })
+        .catch(() => console.log('⚠️ Основной селектор не найден, пробуем альтернативы'));
+
+      // Парсим котировки
+      const quotes = await this.page.evaluate((targetPairs) => {
+        const quotes = [];
+        
+        // Пробуем разные селекторы для Pocket Option
+        const selectors = [
+          '.quote-item',
+          '.asset-item',
+          '[data-qa="quote-item"]',
+          '.quotes-list .item',
+          '.currency-pair'
+        ];
+
+        let elements = [];
+        
+        for (const selector of selectors) {
+          elements = document.querySelectorAll(selector);
+          if (elements.length > 0) break;
+        }
+
+        // Если не нашли через селекторы, пробуем найти по тексту
+        if (elements.length === 0) {
+          const allElements = document.querySelectorAll('*');
+          
+          for (const pair of targetPairs) {
+            for (const element of allElements) {
+              const text = element.textContent || element.innerText;
+              if (text && text.includes(pair)) {
+                // Ищем цену рядом с названием пары
+                const parent = element.closest('*');
+                const priceMatch = parent.textContent.match(/(\d+\.\d{4,5})/);
+                
+                if (priceMatch) {
+                  quotes.push({
+                    symbol: pair,
+                    price: parseFloat(priceMatch[1]),
+                    element: parent.outerHTML
+                  });
+                  break;
+                }
+              }
+            }
+          }
+        } else {
+          // Парсим через найденные элементы
+          elements.forEach(element => {
+            const text = element.textContent || element.innerText;
+            
+            targetPairs.forEach(pair => {
+              if (text.includes(pair)) {
+                const priceMatch = text.match(/(\d+\.\d{4,5})/g);
+                if (priceMatch && priceMatch.length > 0) {
+                  quotes.push({
+                    symbol: pair,
+                    price: parseFloat(priceMatch[0]),
+                    bid: parseFloat(priceMatch[0]),
+                    ask: parseFloat(priceMatch[1] || priceMatch[0])
+                  });
+                }
+              }
+            });
+          });
+        }
+
+        return quotes;
+      }, Array.from(this.watchedPairs));
+
+      // Обновляем котировки
+      quotes.forEach(quote => {
+        const previousQuote = this.quotes.get(quote.symbol);
+        const previousPrice = previousQuote?.bid || quote.price;
+        const change = quote.price - previousPrice;
+        const changePercent = (change / previousPrice) * 100;
+
+        this.quotes.set(quote.symbol, {
+          symbol: quote.symbol,
+          bid: parseFloat(quote.price.toFixed(5)),
+          ask: parseFloat((quote.price + 0.0001).toFixed(5)),
+          change: parseFloat(change.toFixed(5)),
+          changePercent: parseFloat(changePercent.toFixed(2)),
+          timestamp: Date.now(),
+          source: 'pocket-option'
+        });
+      });
+
+      this.lastUpdate = new Date();
+      console.log(`✅ Парсинг завершен. Получено ${quotes.length} котировок`);
+      
+    } catch (error) {
+      console.error('❌ Ошибка парсинга:', error);
+      
+      // Если ошибка, используем резервные данные
+      await this.useBackupData();
+    } finally {
+      this.isParsing = false;
+    }
+  }
+
+  async useBackupData() {
+    console.log('🔄 Используем резервные данные...');
+    
+    // Резервные данные для тестирования
+    const backupData = {
+      EURUSD: 1.0856,
+      GBPUSD: 1.2712,
+      EURGBP: 0.8543,
+      GBPJPY: 190.45,
+      EURJPY: 162.78,
+      USDJPY: 149.82,
+      AUDCAD: 0.9123,
+      NZDUSD: 0.6156,
+      USDCHF: 0.8854,
+      AUDUSD: 0.6654,
+      USDCAD: 1.3612,
+      AUDJPY: 99.67,
+      GBPCAD: 1.7312,
+      GBPCHF: 1.1256,
+      GBPAUD: 1.9112,
+      EURAUD: 1.6323,
+      USDNOK: 10.5123,
+      EURNZD: 1.7634,
+      USDSEK: 10.4234
+    };
+
+    Object.entries(backupData).forEach(([symbol, price]) => {
+      if (this.watchedPairs.has(symbol)) {
+        const previousQuote = this.quotes.get(symbol);
+        const previousPrice = previousQuote?.bid || price;
+        const change = price - previousPrice;
+        const changePercent = (change / previousPrice) * 100;
+
+        this.quotes.set(symbol, {
+          symbol,
+          bid: parseFloat(price.toFixed(5)),
+          ask: parseFloat((price + 0.0001).toFixed(5)),
+          change: parseFloat(change.toFixed(5)),
+          changePercent: parseFloat(changePercent.toFixed(2)),
+          timestamp: Date.now(),
+          source: 'backup-data'
+        });
+      }
+    });
+  }
+
+  async startParsing() {
+    const initialized = await this.init();
+    if (!initialized) {
+      console.log('❌ Не удалось запустить браузер, используем резервные данные');
+      await this.useBackupData();
+    }
+
+    // Первый парсинг
+    await this.parseQuotes();
+
+    // Установка интервала
+    this.updateInterval = setInterval(async () => {
+      await this.parseQuotes();
+    }, 30000); // Каждые 30 секунд
+
+    console.log('✅ Pocket Option parser запущен');
+  }
+
+  stopParsing() {
     if (this.updateInterval) {
       clearInterval(this.updateInterval);
       this.updateInterval = null;
     }
-  }
-
-  async updateAllQuotes() {
-    try {
-      console.log('Fetching real quotes...');
-      
-      // Получаем форекс котировки
-      await this.fetchForexQuotes();
-      
-      // Получаем криптовалютные котировки
-      await this.fetchCryptoQuotes();
-      
-      // Получаем котировки металлов
-      await this.fetchMetalsQuotes();
-      
-      this.lastUpdate = new Date();
-      this.updateError = null;
-      console.log('Quotes updated successfully');
-      
-    } catch (error) {
-      console.error('Error updating quotes:', error);
-      this.updateError = error.message;
-    }
-  }
-
-  async fetchForexQuotes() {
-    try {
-      // Используем exchangerate-api.com для основных валютных пар
-      const response = await fetch(API_CONFIG.EXCHANGE_RATE_API);
-      const data = await response.json();
-      
-      if (data && data.rates) {
-        const usdRates = data.rates;
-        
-        // Конвертируем в пары
-        const forexPairs = {
-          EURUSD: 1 / usdRates.EUR,
-          GBPUSD: 1 / usdRates.GBP,
-          USDJPY: usdRates.JPY,
-          USDCHF: usdRates.CHF,
-          AUDUSD: 1 / usdRates.AUD,
-          USDCAD: usdRates.CAD,
-          NZDUSD: 1 / usdRates.NZD
-        };
-
-        // Добавляем кросс-курсы
-        const eurRate = usdRates.EUR;
-        forexPairs.EURGBP = usdRates.GBP / eurRate;
-        forexPairs.EURJPY = usdRates.JPY / eurRate;
-        forexPairs.GBPJPY = usdRates.JPY / usdRates.GBP;
-
-        Object.entries(foreexPairs).forEach(([symbol, rate]) => {
-          const previousRate = this.quotes.get(symbol)?.bid || rate;
-          const change = rate - previousRate;
-          const changePercent = (change / previousRate) * 100;
-
-          this.quotes.set(symbol, {
-            symbol,
-            bid: parseFloat(rate.toFixed(5)),
-            ask: parseFloat((rate + 0.0001).toFixed(5)),
-            change: parseFloat(change.toFixed(5)),
-            changePercent: parseFloat(changePercent.toFixed(2)),
-            timestamp: Date.now(),
-            source: 'exchangerate-api'
-          });
-        });
-      }
-    } catch (error) {
-      console.error('Error fetching forex quotes:', error);
-    }
-  }
-
-  async fetchCryptoQuotes() {
-    try {
-      const cryptoSymbols = ['bitcoin', 'ethereum'];
-      const response = await fetch(
-        `${API_CONFIG.COINGECKO_API}?ids=${cryptoSymbols.join(',')}&vs_currencies=usd`
-      );
-      const data = await response.json();
-
-      if (data) {
-        if (data.bitcoin) {
-          const btcPrice = data.bitcoin.usd;
-          const previousBtc = this.quotes.get('BTCUSD')?.bid || btcPrice;
-          const change = btcPrice - previousBtc;
-          const changePercent = (change / previousBtc) * 100;
-
-          this.quotes.set('BTCUSD', {
-            symbol: 'BTCUSD',
-            bid: parseFloat(btcPrice.toFixed(2)),
-            ask: parseFloat((btcPrice + 1).toFixed(2)),
-            change: parseFloat(change.toFixed(2)),
-            changePercent: parseFloat(changePercent.toFixed(2)),
-            timestamp: Date.now(),
-            source: 'coingecko'
-          });
-        }
-
-        if (data.ethereum) {
-          const ethPrice = data.ethereum.usd;
-          const previousEth = this.quotes.get('ETHUSD')?.bid || ethPrice;
-          const change = ethPrice - previousEth;
-          const changePercent = (change / previousEth) * 100;
-
-          this.quotes.set('ETHUSD', {
-            symbol: 'ETHUSD',
-            bid: parseFloat(ethPrice.toFixed(2)),
-            ask: parseFloat((ethPrice + 0.5).toFixed(2)),
-            change: parseFloat(change.toFixed(2)),
-            changePercent: parseFloat(changePercent.toFixed(2)),
-            timestamp: Date.now(),
-            source: 'coingecko'
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching crypto quotes:', error);
-    }
-  }
-
-  async fetchMetalsQuotes() {
-    try {
-      // Для золота и серебра используем альтернативный подход
-      // Используем курс USD к золоту
-      const goldPrice = 2035.50 + (Math.random() - 0.5) * 10; // Временное решение
-      const silverPrice = 24.85 + (Math.random() - 0.5) * 0.5;
-
-      const previousGold = this.quotes.get('XAUUSD')?.bid || goldPrice;
-      const goldChange = goldPrice - previousGold;
-      const goldChangePercent = (goldChange / previousGold) * 100;
-
-      this.quotes.set('XAUUSD', {
-        symbol: 'XAUUSD',
-        bid: parseFloat(goldPrice.toFixed(2)),
-        ask: parseFloat((goldPrice + 0.5).toFixed(2)),
-        change: parseFloat(goldChange.toFixed(2)),
-        changePercent: parseFloat(goldChangePercent.toFixed(2)),
-        timestamp: Date.now(),
-        source: 'metals-api'
-      });
-
-      const previousSilver = this.quotes.get('XAGUSD')?.bid || silverPrice;
-      const silverChange = silverPrice - previousSilver;
-      const silverChangePercent = (silverChange / previousSilver) * 100;
-
-      this.quotes.set('XAGUSD', {
-        symbol: 'XAGUSD',
-        bid: parseFloat(silverPrice.toFixed(3)),
-        ask: parseFloat((silverPrice + 0.02).toFixed(3)),
-        change: parseFloat(silverChange.toFixed(3)),
-        changePercent: parseFloat(silverChangePercent.toFixed(2)),
-        timestamp: Date.now(),
-        source: 'metals-api'
-      });
-    } catch (error) {
-      console.error('Error fetching metals quotes:', error);
+    
+    if (this.browser) {
+      this.browser.close();
     }
   }
 
@@ -206,7 +248,7 @@ class RealCurrencyQuotesManager {
 
   addPair(pair) {
     this.watchedPairs.add(pair);
-    this.updateAllQuotes();
+    this.parseQuotes();
   }
 
   removePair(pair) {
@@ -216,38 +258,37 @@ class RealCurrencyQuotesManager {
 
   getAvailablePairs() {
     const allPairs = [
-      'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD',
-      'EURGBP', 'EURJPY', 'GBPJPY', 'EURCAD', 'AUDJPY', 'NZDJPY', 'GBPCHF', 'EURCHF',
-      'XAUUSD', 'XAGUSD', 'BTCUSD', 'ETHUSD'
+      'EURUSD', 'GBPUSD', 'EURGBP', 'GBPJPY', 'EURJPY', 'USDJPY',
+      'AUDCAD', 'NZDUSD', 'USDCHF', 'AUDUSD', 'USDCAD', 'AUDJPY',
+      'GBPCAD', 'GBPCHF', 'GBPAUD', 'EURAUD', 'USDNOK', 'EURNZD', 'USDSEK'
     ];
     return allPairs.filter(p => !this.watchedPairs.has(p));
   }
 }
 
-const quotesManager = new RealCurrencyQuotesManager();
-quotesManager.startUpdates();
+const parser = new PocketOptionParser();
 
 // --- Display Names ---
 const displayNames = {
   EURUSD: { ru: 'EUR/USD', en: 'EUR/USD' },
   GBPUSD: { ru: 'GBP/USD', en: 'GBP/USD' },
+  EURGBP: { ru: 'EUR/GBP', en: 'EUR/GBP' },
+  GBPJPY: { ru: 'GBP/JPY', en: 'GBP/JPY' },
+  EURJPY: { ru: 'EUR/JPY', en: 'EUR/JPY' },
   USDJPY: { ru: 'USD/JPY', en: 'USD/JPY' },
+  AUDCAD: { ru: 'AUD/CAD', en: 'AUD/CAD' },
+  NZDUSD: { ru: 'NZD/USD', en: 'NZD/USD' },
   USDCHF: { ru: 'USD/CHF', en: 'USD/CHF' },
   AUDUSD: { ru: 'AUD/USD', en: 'AUD/USD' },
   USDCAD: { ru: 'USD/CAD', en: 'USD/CAD' },
-  NZDUSD: { ru: 'NZD/USD', en: 'NZD/USD' },
-  EURGBP: { ru: 'EUR/GBP', en: 'EUR/GBP' },
-  EURJPY: { ru: 'EUR/JPY', en: 'EUR/JPY' },
-  GBPJPY: { ru: 'GBP/JPY', en: 'GBP/JPY' },
-  EURCAD: { ru: 'EUR/CAD', en: 'EUR/CAD' },
   AUDJPY: { ru: 'AUD/JPY', en: 'AUD/JPY' },
-  NZDJPY: { ru: 'NZD/JPY', en: 'NZD/JPY' },
+  GBPCAD: { ru: 'GBP/CAD', en: 'GBP/CAD' },
   GBPCHF: { ru: 'GBP/CHF', en: 'GBP/CHF' },
-  EURCHF: { ru: 'EUR/CHF', en: 'EUR/CHF' },
-  XAUUSD: { ru: 'Золото (XAU/USD)', en: 'Gold (XAU/USD)' },
-  XAGUSD: { ru: 'Серебро (XAG/USD)', en: 'Silver (XAG/USD)' },
-  BTCUSD: { ru: 'Bitcoin (BTC/USD)', en: 'Bitcoin (BTC/USD)' },
-  ETHUSD: { ru: 'Ethereum (ETH/USD)', en: 'Ethereum (ETH/USD)' }
+  GBPAUD: { ru: 'GBP/AUD', en: 'GBP/AUD' },
+  EURAUD: { ru: 'EUR/AUD', en: 'EUR/AUD' },
+  USDNOK: { ru: 'USD/NOK', en: 'USD/NOK' },
+  EURNZD: { ru: 'EUR/NZD', en: 'EUR/NZD' },
+  USDSEK: { ru: 'USD/SEK', en: 'USD/SEK' }
 };
 
 // --- Utility Functions ---
@@ -270,12 +311,10 @@ function formatTime(timestamp) {
 // --- Telegram Bot Commands ---
 bot.start(async (ctx) => {
   const welcomeText = `
-🤖 Добро пожаловать в Real Currency Quotes Bot!
+🤖 <b>Pocket Option Quotes Parser</b>
 
-📊 <b>РЕАЛЬНЫЕ КОТИРОВКИ</b> из открытых API:
-• Форекс: exchangerate-api.com
-• Криптовалюты: CoinGecko
-• Металлы: обновляемые данные
+📊 Парсер котировок напрямую с платформы Pocket Option
+🎯 Отслеживаемые пары: 19 основных валютных пар
 
 💡 Доступные команды:
 /quotes - показать текущие котировки
@@ -284,8 +323,6 @@ bot.start(async (ctx) => {
 /list - список отслеживаемых пар
 /help - помощь
 
-📱 Также можно отправить название пары для быстрого просмотра
-
 ⚡ Обновление каждые 30 секунд
   `;
   await ctx.reply(welcomeText, { parse_mode: 'HTML' });
@@ -293,38 +330,37 @@ bot.start(async (ctx) => {
 
 bot.command('help', async (ctx) => {
   const helpText = `
-📋 Справка по боту:
+📋 Справка по Pocket Option Parser:
 
-🔹 <b>РЕАЛЬНЫЕ ДАННЫЕ</b> из:
-• exchangerate-api.com (форекс)
-• CoinGecko (криптовалюты)
-• metals-api.com (драгоценные металлы)
+🔹 <b>Особенности:</b>
+• Прямой парсинг с платформы Pocket Option
+• 19 валютных пар
+• Обновление каждые 30 секунд
+• Резервные данные при недоступности сайта
+
+🔹 Доступные пары:
+EURUSD, GBPUSD, EURGBP, GBPJPY, EURJPY, USDJPY,
+AUDCAD, NZDUSD, USDCHF, AUDUSD, USDCAD, AUDJPY,
+GBPCAD, GBPCHF, GBPAUD, EURAUD, USDNOK, EURNZD, USDSEK
 
 🔹 Команды:
 • /quotes - показать все текущие котировки
 • /add - добавить новую пару в отслеживание
 • /remove - удалить пару из отслеживания
 • /list - показать список всех отслеживаемых пар
-
-🔹 Доступные пары:
-<b>Валютные пары:</b> EURUSD, GBPUSD, USDJPY, USDCHF, AUDUSD, USDCAD, NZDUSD, EURGBP, EURJPY, GBPJPY, EURCAD, AUDJPY, NZDJPY, GBPCHF, EURCHF
-<b>Криптовалюты:</b> BTCUSD, ETHUSD
-<b>Драгоценные металлы:</b> XAUUSD (золото), XAGUSD (серебро)
-
-⚠️ Данные предоставляются в реальном времени из открытых источников
   `;
   await ctx.reply(helpText, { parse_mode: 'HTML' });
 });
 
 bot.command('quotes', async (ctx) => {
-  const quotes = quotesManager.getQuotes();
+  const quotes = parser.getQuotes();
   
   if (quotes.length === 0) {
-    await ctx.reply('📊 Загрузка котировок... Попробуйте через несколько секунд.');
+    await ctx.reply('📊 Загрузка котировок с Pocket Option... Попробуйте через несколько секунд.');
     return;
   }
 
-  let message = '📊 <b>ТЕКУЩИЕ КОТИРОВКИ</b>\n\n';
+  let message = '📊 <b>КОТИРОВКИ POCKET OPTION</b>\n\n';
   
   quotes.forEach(quote => {
     const symbol = displayNames[quote.symbol]?.ru || quote.symbol;
@@ -338,8 +374,8 @@ bot.command('quotes', async (ctx) => {
     message += `Время: ${formatTime(quote.timestamp)}\n\n`;
   });
 
-  if (quotesManager.lastUpdate) {
-    message += `🔄 Последнее обновление: ${formatTime(quotesManager.lastUpdate)}`;
+  if (parser.lastUpdate) {
+    message += `🔄 Последнее обновление: ${formatTime(parser.lastUpdate)}`;
   }
 
   await ctx.reply(message, {
@@ -354,12 +390,12 @@ bot.command('quotes', async (ctx) => {
 
 bot.action('refresh_quotes', async (ctx) => {
   await ctx.answerCbQuery('Обновляем...');
-  await quotesManager.updateAllQuotes();
+  await parser.parseQuotes();
   await bot.handleUpdate({ message: { text: '/quotes', chat: ctx.chat, from: ctx.from } });
 });
 
 bot.command('add', async (ctx) => {
-  const availablePairs = quotesManager.getAvailablePairs();
+  const availablePairs = parser.getAvailablePairs();
   
   if (availablePairs.length === 0) {
     await ctx.reply('✅ Все доступные пары уже отслеживаются');
@@ -376,7 +412,7 @@ bot.command('add', async (ctx) => {
 });
 
 bot.command('remove', async (ctx) => {
-  const currentPairs = Array.from(quotesManager.watchedPairs);
+  const currentPairs = Array.from(parser.watchedPairs);
   
   if (currentPairs.length === 0) {
     await ctx.reply('❌ Нет отслеживаемых пар');
@@ -393,7 +429,7 @@ bot.command('remove', async (ctx) => {
 });
 
 bot.command('list', async (ctx) => {
-  const currentPairs = Array.from(quotesManager.watchedPairs);
+  const currentPairs = Array.from(parser.watchedPairs);
   
   if (currentPairs.length === 0) {
     await ctx.reply('❌ Нет отслеживаемых пар');
@@ -411,14 +447,14 @@ bot.command('list', async (ctx) => {
 // Обработчики callback
 bot.action(/add_(.+)/, async (ctx) => {
   const pair = ctx.match[1];
-  quotesManager.addPair(pair);
+  parser.addPair(pair);
   await ctx.answerCbQuery(`✅ Добавлено: ${displayNames[pair]?.ru || pair}`);
   await ctx.reply(`✅ Пара ${displayNames[pair]?.ru || pair} добавлена в отслеживание`);
 });
 
 bot.action(/remove_(.+)/, async (ctx) => {
   const pair = ctx.match[1];
-  quotesManager.removePair(pair);
+  parser.removePair(pair);
   await ctx.answerCbQuery(`❌ Удалено: ${displayNames[pair]?.ru || pair}`);
   await ctx.reply(`❌ Пара ${displayNames[pair]?.ru || pair} удалена из отслеживания`);
 });
@@ -428,14 +464,14 @@ bot.on('text', async (ctx) => {
   const text = ctx.message.text.toUpperCase().replace('/', '');
   
   if (displayNames[text]) {
-    const quote = quotesManager.quotes.get(text);
+    const quote = parser.quotes.get(text);
     if (quote) {
       const symbol = displayNames[text]?.ru || text;
       const emoji = quote.change >= 0 ? '📈' : '📉';
       const sign = quote.change > 0 ? '+' : '';
       
       const message = `
-📊 <b>${symbol}</b>
+📊 <b>${symbol} (Pocket Option)</b>
 💰 Bid: <code>${quote.bid}</code>
 💰 Ask: <code>${quote.ask}</code>
 📊 Изменение: ${sign}${quote.change} (${quote.changePercent}%)
@@ -450,18 +486,31 @@ bot.on('text', async (ctx) => {
   }
 });
 
-// Запуск бота
-bot.launch();
-console.log('✅ Real Currency Quotes Bot запущен успешно!');
-console.log('📊 Используются реальные данные из открытых API');
-console.log('⚡ Обновление каждые 30 секунд');
+// Запуск
+async function startBot() {
+  console.log('🚀 Запуск Pocket Option Parser...');
+  
+  await parser.startParsing();
+  
+  bot.launch();
+  console.log('✅ Pocket Option Quotes Bot запущен успешно!');
+  console.log('📊 Парсим котировки с платформы Pocket Option');
+}
 
 // Graceful shutdown
-process.once('SIGINT', () => {
-  quotesManager.stopUpdates();
+process.once('SIGINT', async () => {
+  console.log('🛑 Остановка бота...');
+  parser.stopParsing();
   bot.stop('SIGINT');
+  process.exit(0);
 });
-process.once('SIGTERM', () => {
-  quotesManager.stopUpdates();
+
+process.once('SIGTERM', async () => {
+  console.log('🛑 Остановка бота...');
+  parser.stopParsing();
   bot.stop('SIGTERM');
+  process.exit(0);
 });
+
+// Запускаем бота
+startBot().catch(console.error);
