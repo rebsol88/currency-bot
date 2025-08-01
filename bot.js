@@ -1,9 +1,9 @@
-const { Telegraf, Markup, session } = require('telegraf');
-const { ChartJSNodeCanvas } = require('chartjs-node-canvas');
-const Chart = require('chart.js/auto');
-const annotationPlugin = require('chartjs-plugin-annotation');
-const fetch = require('node-fetch');
-const WebSocket = require('ws');
+import { Telegraf, Markup, session } from 'telegraf';
+import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
+import Chart from 'chart.js/auto';
+import annotationPlugin from 'chartjs-plugin-annotation';
+import fetch from 'node-fetch';
+import WebSocket from 'ws';
 
 // --- Настройки ---
 const BOT_TOKEN = '8072367890:AAG2YD0mCajiB8JSstVuozeFtfosURGvzlk';
@@ -25,7 +25,6 @@ const chartJSNodeCanvas = new ChartJSNodeCanvas({
 async function fetchPocketOptionQuotes(pair) {
   try {
     // Используем фейковые данные для демонстрации
-    // В реальном приложении замените на реальный API endpoint
     return {
       symbol: pair,
       bid: 1.0 + Math.random() * 0.1,
@@ -237,7 +236,7 @@ function detectRSIDivergence(prevPrice, prevRSI, currPrice, currRSI, lang) {
 
   if (currPrice < prevPrice && currRSI > prevRSI) {
     return lang === 'ru'
-      ? 'Бычья дивергенция RSI (возможен разворот вверх)'
+      ? 'Быч��я дивергенция RSI (возможен разворот вверх)'
       : 'Bullish RSI divergence (possible upward reversal)';
   }
   if (currPrice > prevPrice && currRSI < prevRSI) {
@@ -264,18 +263,68 @@ function generateDetailedRecommendation(price, sma5, rsiVal, candlePattern, lang
   const rsiOverbought = rsiVal !== null && rsiVal > 70;
   const rsiOversold = rsiVal !== null && rsiVal < 30;
 
-  const texts = languages[lang].texts;
-
   let emoji = '❓';
   let recommendation = '';
 
-  // ... (остальная логика generateDetailedRecommendation)
+  if (priceAboveSMA && !rsiOverbought) {
+    emoji = '📈';
+    recommendation = lang === 'ru' 
+      ? 'Рост продолжается. Рассмотрите покупку на откате к SMA5.'
+      : 'Uptrend continues. Consider buying on pullback to SMA5.';
+  } else if (!priceAboveSMA && !rsiOversold) {
+    emoji = '📉';
+    recommendation = lang === 'ru'
+      ? 'Падение продолжается. Рассмотрите продажу на откате к SMA5.'
+      : 'Downtrend continues. Consider selling on pullback to SMA5.';
+  } else if (rsiOverbought) {
+    emoji = '⚠️';
+    recommendation = lang === 'ru'
+      ? 'RSI перекуплен. Возможна коррекция вниз.'
+      : 'RSI overbought. Possible downward correction.';
+  } else if (rsiOversold) {
+    emoji = '💰';
+    recommendation = lang === 'ru'
+      ? 'RSI перепродан. Возможен отскок вверх.'
+      : 'RSI oversold. Possible upward bounce.';
+  }
 
-  return `${emoji} ${texts.recommendationPrefix}:\n${recommendation}`;
+  return `${emoji} ${lang === 'ru' ? 'Рекомендация' : 'Recommendation'}:\n${recommendation}`;
 }
 
 function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports, resistances, lang) {
-  const texts = languages[lang].texts;
+  const texts = {
+    ru: {
+      trendUp: 'Текущий тренд восходящий',
+      trendDown: 'Текущий тренд нисходящий',
+      trendNone: 'Тренд не выражен',
+      volumeDecreasing: 'Объём снижается, что может указывать на слабость текущего движения.',
+      volumeIncreasing: 'Объём стабильный или растущий, поддерживает текущий тренд.',
+      candlePatternDetected: 'Обнаружен свечной паттерн',
+      divergenceDetected: 'Обнаружена дивергенция RSI',
+      closeToSupport: 'Цена близка к поддержке около',
+      closeToResistance: 'Цена близка к сопротивлению около',
+      breakoutSupport: 'Пробой и ретест поддержки с подтверждением — сильный сигнал к покупке.',
+      breakoutResistance: 'Пробой и ретест сопротивления с подтверждением — сильный сигнал к продаже.',
+      buySignal: 'Сигнал на покупку',
+      sellSignal: 'Сигнал на продажу',
+    },
+    en: {
+      trendUp: 'Current trend is up',
+      trendDown: 'Current trend is down',
+      trendNone: 'Trend is not defined',
+      volumeDecreasing: 'Volume is decreasing, indicating possible weakness of the current move.',
+      volumeIncreasing: 'Volume is stable or increasing, supporting the current trend.',
+      candlePatternDetected: 'Candle pattern detected',
+      divergenceDetected: 'RSI divergence detected',
+      closeToSupport: 'Price is close to support around',
+      closeToResistance: 'Price is close to resistance around',
+      breakoutSupport: 'Breakout and retest of support confirmed — strong buy signal.',
+      breakoutResistance: 'Breakout and retest of resistance confirmed — strong sell signal.',
+      buySignal: 'Buy signal',
+      sellSignal: 'Sell signal',
+    }
+  };
+
   const last = klines.length - 1;
   const price = klines[last].close;
   const volume = klines[last].volume;
@@ -286,7 +335,48 @@ function analyzeIndicators(klines, sma5, sma15, rsi, macd, stochastic, supports,
 
   let text = '';
 
-  // ... (остальная логика analyzeIndicators)
+  // Trend analysis
+  const trendUp = sma5[last] > sma15[last];
+  const trendDown = sma5[last] < sma15[last];
+  
+  if (trendUp) text += `📈 ${texts[lang].trendUp}\n`;
+  else if (trendDown) text += `📉 ${texts[lang].trendDown}\n`;
+  else text += `➡️ ${texts[lang].trendNone}\n`;
+
+  // Volume analysis
+  if (prevVolume && volume < prevVolume * 0.9) {
+    text += `📊 ${texts[lang].volumeDecreasing}\n`;
+  } else {
+    text += `📊 ${texts[lang].volumeIncreasing}\n`;
+  }
+
+  // Candle pattern
+  const pattern = detectCandlePattern(candle, lang);
+  if (pattern) text += `🕯️ ${texts[lang].candlePatternDetected}: ${pattern}\n`;
+
+  // RSI divergence
+  const divergence = detectRSIDivergence(prevPrice, prevRSI, price, rsi[last], lang);
+  if (divergence) text += `⚡ ${texts[lang].divergenceDetected}: ${divergence}\n`;
+
+  // Support/Resistance proximity
+  const nearSupport = supports.find(s => Math.abs(price - s) < price * 0.002);
+  const nearResistance = resistances.find(r => Math.abs(price - r) < price * 0.002);
+
+  if (nearSupport) text += `🟢 ${texts[lang].closeToSupport} ${nearSupport.toFixed(5)}\n`;
+  if (nearResistance) text += `🔴 ${texts[lang].closeToResistance} ${nearResistance.toFixed(5)}\n`;
+
+  // Breakout signals
+  const recentPrices = klines.slice(-3).map(k => k.close);
+  supports.forEach(s => {
+    if (checkBreakoutWithRetest(recentPrices, s, true)) {
+      text += `🚀 ${texts[lang].breakoutSupport}\n`;
+    }
+  });
+  resistances.forEach(r => {
+    if (checkBreakoutWithRetest(recentPrices, r, false)) {
+      text += `🔻 ${texts[lang].breakoutResistance}\n`;
+    }
+  });
 
   return text;
 }
@@ -296,7 +386,22 @@ async function generateChartImage(klines, sma5, sma15, supports, resistances, pa
   const labels = klines.map(k => new Date(k.openTime).toISOString().substr(11, 5));
   const closePrices = klines.map(k => k.close);
 
-  const texts = languages[lang].texts;
+  const texts = {
+    ru: {
+      priceLabel: 'Цена',
+      timeLabel: 'Время (UTC)',
+      supportLabel: 'Поддержка',
+      resistanceLabel: 'Сопротивление',
+      analysisTitle: 'Аналитика по паре'
+    },
+    en: {
+      priceLabel: 'Price',
+      timeLabel: 'Time (UTC)',
+      supportLabel: 'Support',
+      resistanceLabel: 'Resistance',
+      analysisTitle: 'Analysis for pair'
+    }
+  };
 
   const supportAnnotations = supports.map((s, i) => ({
     type: 'line',
@@ -306,7 +411,7 @@ async function generateChartImage(klines, sma5, sma15, supports, resistances, pa
     borderWidth: 2,
     borderDash: [6, 6],
     label: {
-      content: `${texts.supportLabel} ${i + 1} (${s.toFixed(5)})`,
+      content: `${texts[lang].supportLabel} ${i + 1} (${s.toFixed(5)})`,
       enabled: true,
       position: 'start',
       backgroundColor: 'green',
@@ -323,7 +428,7 @@ async function generateChartImage(klines, sma5, sma15, supports, resistances, pa
     borderWidth: 2,
     borderDash: [6, 6],
     label: {
-      content: `${texts.resistanceLabel} ${i + 1} (${r.toFixed(5)})`,
+      content: `${texts[lang].resistanceLabel} ${i + 1} (${r.toFixed(5)})`,
       enabled: true,
       position: 'start',
       backgroundColor: 'red',
@@ -372,7 +477,7 @@ async function generateChartImage(klines, sma5, sma15, supports, resistances, pa
       plugins: {
         title: {
           display: true,
-          text: `${lang === 'ru' ? 'Аналитика по паре' : 'Analysis for pair'} ${displayNames[pair][lang]} — ${lang === 'ru' ? 'Таймфрейм' : 'Timeframe'}: ${timeframeLabel}`,
+          text: `${texts[lang].analysisTitle} ${displayNames[pair][lang]} — ${lang === 'ru' ? 'Таймфрейм' : 'Timeframe'}: ${timeframeLabel}`,
           font: { size: 18, weight: 'bold' },
         },
         legend: {
@@ -385,11 +490,11 @@ async function generateChartImage(klines, sma5, sma15, supports, resistances, pa
       },
       scales: {
         y: {
-          title: { display: true, text: texts.priceLabel },
+          title: { display: true, text: texts[lang].priceLabel },
           beginAtZero: false,
         },
         x: {
-          title: { display: true, text: texts.timeLabel },
+          title: { display: true, text: texts[lang].timeLabel },
           ticks: {
             maxTicksLimit: 15,
           }
@@ -411,6 +516,108 @@ function chunkArray(arr, size) {
   }
   return result;
 }
+
+const languages = {
+  ru: {
+    name: 'Русский',
+    pairsMain: [
+      'EURUSD', 'USDJPY', 'GBPUSD', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD', 'EURGBP',
+      'EURJPY', 'GBPJPY', 'CHFJPY', 'AUDJPY', 'EURCHF', 'EURCAD', 'AUDCAD', 'NZDJPY',
+    ],
+    pairsOTC: [
+      'OTC_EURAUD', 'OTC_EURCAD', 'OTC_EURCHF', 'OTC_EURJPY',
+      'OTC_EURNZD', 'OTC_EURUSD', 'OTC_GBPCHF', 'OTC_GBPJPY',
+      'OTC_GBPNZD', 'OTC_GBPUSD', 'OTC_USDCAD', 'OTC_USDCHF',
+      'OTC_USDJPY', 'OTC_USDNZD', 'OTC_AUDCAD', 'OTC_AUDCHF',
+    ],
+    timeframes: [
+      { label: '1 минута', value: '1m', minutes: 1 },
+      { label: '5 минут', value: '5m', minutes: 5 },
+      { label: '15 минут', value: '15m', minutes: 15 },
+      { label: '1 час', value: '1h', minutes: 60 },
+      { label: '4 часа', value: '4h', minutes: 240 },
+      { label: '1 день', value: '1d', minutes: 1440 },
+    ],
+    texts: {
+      chooseLanguage: 'Выберите язык / Choose language',
+      choosePair: 'Выберите валютную пару:',
+      chooseTimeframe: 'Выберите таймфрейм:',
+      analysisStarting: (pair, tf) => `Начинаю анализ ${pair} на таймфрейме ${tf}...`,
+      unknownCmd: 'Неизвестная команда',
+      pleaseChoosePairFirst: 'Пожалуйста, сначала выберите валютную пару.',
+      errorGeneratingChart: 'Ошибка при генерации графика.',
+      recommendationPrefix: 'Рекомендация:',
+      nextAnalysis: 'Следующий анализ',
+    },
+  },
+  en: {
+    name: 'English',
+    pairsMain: [
+      'EURUSD', 'USDJPY', 'GBPUSD', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD', 'EURGBP',
+      'EURJPY', 'GBPJPY', 'CHFJPY', 'AUDJPY', 'EURCHF', 'EURCAD', 'AUDCAD', 'NZDJPY',
+    ],
+    pairsOTC: [
+      'OTC_EURAUD', 'OTC_EURCAD', 'OTC_EURCHF', 'OTC_EURJPY',
+      'OTC_EURNZD', 'OTC_EURUSD', 'OTC_GBPCHF', 'OTC_GBPJPY',
+      'OTC_GBPNZD', 'OTC_GBPUSD', 'OTC_USDCAD', 'OTC_USDCHF',
+      'OTC_USDJPY', 'OTC_USDNZD', 'OTC_AUDCAD', 'OTC_AUDCHF',
+    ],
+    timeframes: [
+      { label: '1 minute', value: '1m', minutes: 1 },
+      { label: '5 minutes', value: '5m', minutes: 5 },
+      { label: '15 minutes', value: '15m', minutes: 15 },
+      { label: '1 hour', value: '1h', minutes: 60 },
+      { label: '4 hours', value: '4h', minutes: 240 },
+      { label: '1 day', value: '1d', minutes: 1440 },
+    ],
+    texts: {
+      chooseLanguage: 'Choose language / Выберите язык',
+      choosePair: 'Choose currency pair:',
+      chooseTimeframe: 'Choose timeframe:',
+      analysisStarting: (pair, tf) => `Starting analysis of ${pair} on timeframe ${tf}...`,
+      unknownCmd: 'Unknown command',
+      pleaseChoosePairFirst: 'Please choose a currency pair first.',
+      errorGeneratingChart: 'Error generating chart.',
+      recommendationPrefix: 'Recommendation:',
+      nextAnalysis: 'Next analysis',
+    },
+  },
+};
+
+const displayNames = {
+  EURUSD: { ru: 'EUR/USD', en: 'EUR/USD' },
+  USDJPY: { ru: 'USD/JPY', en: 'USD/JPY' },
+  GBPUSD: { ru: 'GBP/USD', en: 'GBP/USD' },
+  USDCHF: { ru: 'USD/CHF', en: 'USD/CHF' },
+  AUDUSD: { ru: 'AUD/USD', en: 'AUD/USD' },
+  USDCAD: { ru: 'USD/CAD', en: 'USD/CAD' },
+  NZDUSD: { ru: 'NZD/USD', en: 'NZD/USD' },
+  EURGBP: { ru: 'EUR/GBP', en: 'EUR/GBP' },
+  EURJPY: { ru: 'EUR/JPY', en: 'EUR/JPY' },
+  GBPJPY: { ru: 'GBP/JPY', en: 'GBP/JPY' },
+  CHFJPY: { ru: 'CHF/JPY', en: 'CHF/JPY' },
+  AUDJPY: { ru: 'AUD/JPY', en: 'AUD/JPY' },
+  EURCHF: { ru: 'EUR/CHF', en: 'EUR/CHF' },
+  EURCAD: { ru: 'EUR/CAD', en: 'EUR/CAD' },
+  AUDCAD: { ru: 'AUD/CAD', en: 'AUD/CAD' },
+  NZDJPY: { ru: 'NZD/JPY', en: 'NZD/JPY' },
+  OTC_EURAUD: { ru: 'OTC EUR/AUD', en: 'OTC EUR/AUD' },
+  OTC_EURCAD: { ru: 'OTC EUR/CAD', en: 'OTC EUR/CAD' },
+  OTC_EURCHF: { ru: 'OTC EUR/CHF', en: 'OTC EUR/CHF' },
+  OTC_EURJPY: { ru: 'OTC EUR/JPY', en: 'OTC EUR/JPY' },
+  OTC_EURNZD: { ru: 'OTC EUR/NZD', en: 'OTC EUR/NZD' },
+  OTC_EURUSD: { ru: 'OTC EUR/USD', en: 'OTC EUR/USD' },
+  OTC_GBPCHF: { ru: 'OTC GBP/CHF', en: 'OTC GBP/CHF' },
+  OTC_GBPJPY: { ru: 'OTC GBP/JPY', en: 'OTC GBP/JPY' },
+  OTC_GBPNZD: { ru: 'OTC GBP/NZD', en: 'OTC GBP/NZD' },
+  OTC_GBPUSD: { ru: 'OTC GBP/USD', en: 'OTC GBP/USD' },
+  OTC_USDCAD: { ru: 'OTC USD/CAD', en: 'OTC USD/CAD' },
+  OTC_USDCHF: { ru: 'OTC USD/CHF', en: 'OTC USD/CHF' },
+  OTC_USDJPY: { ru: 'OTC USD/JPY', en: 'OTC USD/JPY' },
+  OTC_USDNZD: { ru: 'OTC USD/NZD', en: 'OTC USD/NZD' },
+  OTC_AUDCAD: { ru: 'OTC AUD/CAD', en: 'OTC AUD/CAD' },
+  OTC_AUDCHF: { ru: 'OTC AUD/CHF', en: 'OTC AUD/CHF' },
+};
 
 async function sendPairSelection(ctx, lang) {
   const langData = languages[lang];
